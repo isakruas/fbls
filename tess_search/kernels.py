@@ -1,20 +1,29 @@
 """Fused float64 kernels; no trial-by-observation or trial-by-mode tensors."""
+import torch
 import triton
 import triton.language as tl
 
 
 @triton.jit
 def fold_fields(T, X, Scale, Out, N, NB, B: tl.constexpr):
+    """Accumulate the four fields of each observation into interleaved phase bins (period, bin, field)."""
     f = tl.program_id(0)
     i = tl.program_id(1) * B + tl.arange(0, B)
     t = tl.load(T + i, i < N, other=0.)
     scale = tl.load(Scale + f)
     # Identical integer-cell convention is used by the interval refinement.
     cell = tl.floor(t * scale).to(tl.int64) % NB
+    base = (f.to(tl.int64) * NB + cell) * 4
     for field in tl.static_range(4):
         x = tl.load(X + field * N + i, i < N, other=0.)
-        tl.atomic_add(Out + (f * 4 + field) * NB + cell, x,
-                      i < N, sem="relaxed")
+        tl.atomic_add(Out + base + field, x, i < N, sem="relaxed")
+
+
+def doubled_cumulative(folded):
+    """Cumulative sums over (period, bin, field) with the bins repeated once: (period, 2 nb + 1, field)."""
+    first = folded.cumsum(1)
+    zero = torch.zeros((folded.shape[0], 1, folded.shape[2]), device=folded.device, dtype=folded.dtype)
+    return torch.cat((zero, first, first + first[:, -1:, :]), dim=1).contiguous()
 
 
 @triton.jit
@@ -28,9 +37,23 @@ def circular_sum(C, row, start, width, NB):
 
 
 @triton.jit
+def interval_sum(Row, field, start, width):
+    """Interval sum of one of four interleaved fields on a doubled cumulative row.
+
+    Row points at the period's (2 NB + 1) positions times 4 fields; start lies
+    in [0, NB) and start + width <= 2 NB, so offsets fit int32 and never wrap.
+    """
+    return tl.load(Row + ((start + width) * 4 + field)) - tl.load(Row + (start * 4 + field))
+
+
+@triton.jit
 def template_sums(C, f, di, j, Scale, Dur, N, NB,
                   INGRESS: tl.constexpr, LAYERS: tl.constexpr, B: tl.constexpr):
-    """Numerator, baseline projection and diagonal norm of one staircase template."""
+    """Numerator, baseline projection and diagonal norm of one staircase template.
+
+    C holds, per period, the four fields interleaved per position of a
+    cumulative sum over the folded bins repeated twice (2 NB + 1 positions).
+    """
     valid = j < NB
     jj = tl.minimum(j, NB - 1)
     scale = tl.load(Scale + f)
@@ -40,16 +63,16 @@ def template_sums(C, f, di, j, Scale, Dur, N, NB,
     a = tl.zeros([B], tl.float64)
     hp = tl.zeros([B], tl.float64)
     norm = tl.zeros([B], tl.float64)
-    row = f.to(tl.int64) * 4 * (NB + 1)
-    count = circular_sum(C, row + 3 * (NB + 1), jj, k, NB)
+    row = C + f.to(tl.int64) * 4 * (2 * NB + 1)
+    count = interval_sum(row, 3, jj, k)
     for layer in tl.static_range(LAYERS):
         fraction = 0. if LAYERS == 1 else layer / (LAYERS - 1)
         factor = tl.full([], 1 - 2 * INGRESS * fraction, tl.float64)
         width = tl.maximum(1, tl.floor(k.to(tl.float64) * factor + 0.5).to(tl.int32))
         start = jj + (k - width) // 2
-        a += circular_sum(C, row, start, width, NB) / LAYERS
-        hp += circular_sum(C, row + NB + 1, start, width, NB) / LAYERS
-        norm += circular_sum(C, row + 2 * (NB + 1), start, width, NB) * ((2. * layer + 1.) / (LAYERS * LAYERS))
+        a += interval_sum(row, 0, start, width) / LAYERS
+        hp += interval_sum(row, 1, start, width) / LAYERS
+        norm += interval_sum(row, 2, start, width) * ((2. * layer + 1.) / (LAYERS * LAYERS))
     usable = valid & (raw_k < NB // 2) & (count >= 3) & (count <= N - 3) & (a > 0.)
     return jj, k, a, hp, norm, usable
 

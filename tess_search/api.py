@@ -33,6 +33,8 @@ class SearchConfig:
     ingress_fractions: tuple[float, ...] = (0., .2, .45)
     shape_layers: int = 4
     phase_oversample: int = 4
+    prescan_factor: int = 2
+    prescan_fraction: float = .7
     period_oversample: float = 3.
     max_candidates: int = 20
     period_batch: int | None = None
@@ -77,7 +79,7 @@ class SearchConfig:
         object.__setattr__(self, "durations_hours", durations)
         object.__setattr__(self, "ingress_fractions", ingress)
         for name in ("period_min", "period_max", "threshold", "bin_minutes", "window_days",
-                     "window_factor", "window_max_days", "clip_sigma", "period_oversample", "max_fold_mib", "planet_prior", "binary_prior",
+                     "window_factor", "window_max_days", "clip_sigma", "period_oversample", "prescan_fraction", "max_fold_mib", "planet_prior", "binary_prior",
                      "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
                      "planet_radius_scale_rj", "target_flux_fraction",
                      "evidence_rtol", "planet_log_odds_min", "eccentricity_max", "stellar_duration_scatter",
@@ -129,6 +131,8 @@ class SearchConfig:
             raise ValueError("Positive planet/binary prior masses must sum to less than one")
         if not 0 <= self.evidence_rtol < 1:
             raise ValueError("evidence_rtol must be in [0, 1)")
+        if not 0 < self.prescan_fraction <= 1:
+            raise ValueError("prescan_fraction must be in (0, 1]")
         if not (0 < self.target_flux_fraction <= 1 and self.planet_radius_scale_rj > 0
                 and self.planet_depth_scale > 0 and self.binary_depth_scale > 0
                 and self.diluted_binary_depth_scale > 0):
@@ -149,6 +153,7 @@ class SearchConfig:
                     (self.eccentricity_nodes,0,16),(self.periastron_nodes,4,64),
                     (self.phase_oversample, 1, None), (self.max_candidates, 0, None),
                     (self.candidate_capacity, 1, None), (self.passes, 1, None), (self.min_events, 1, None),
+                    (self.prescan_factor, 1, None),
                     (self.evidence_candidates, 0, None))
         for value, minimum, maximum in integers:
             if isinstance(value, bool) or not isinstance(value, int) or value < minimum or (maximum is not None and value > maximum):
@@ -387,7 +392,8 @@ def _search(families, config, preparation_seconds, time_all):
     durations = gpu64(config.durations_hours) / 24
     options = dict(ingress_fractions=config.ingress_fractions, shape_layers=config.shape_layers,
                    phase_oversample=config.phase_oversample, period_batch=config.period_batch,
-                   candidate_capacity=config.candidate_capacity, max_fold_mib=config.max_fold_mib)
+                   candidate_capacity=config.candidate_capacity, max_fold_mib=config.max_fold_mib,
+                   prescan_factor=config.prescan_factor, prescan_fraction=config.prescan_fraction)
     states = [family_state(curve, durations[indices], indices, config.noise_degree, config.correlated_noise)
               for curve, indices in families]
     peaks, masks, pass_stats, first_table, periods_tested = [], [], [], None, 0
@@ -444,7 +450,8 @@ def _search(families, config, preparation_seconds, time_all):
             if len(curve.time) < 6:
                 continue
             state = family_state(curve, durations[indices], indices, config.noise_degree, config.correlated_noise)
-            rows, stats = evidence_at(state, [peak["period_days"]], comparison, threshold=config.threshold, **options)
+            rows, stats = evidence_at(state, [peak["period_days"]], comparison, threshold=config.threshold,
+                                      **{key: value for key, value in options.items() if not key.startswith("prescan")})
             evidence_seconds += stats.get("seconds_search", 0.)
             evidence_stats = {key: value for key, value in stats.items()
                               if key not in ("seconds_search", "periods", "batches")}

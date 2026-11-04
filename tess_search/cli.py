@@ -117,6 +117,8 @@ def main(argv=None):
     parser.add_argument("--ingress-fractions", type=_numbers, default=(0., .2, .45))
     parser.add_argument("--shape-layers", type=int, default=4)
     parser.add_argument("--phase-oversample", type=int, default=4)
+    parser.add_argument("--prescan-factor", type=int, default=2, help="Coarse phase-grid factor of the first scan stage; 1 disables")
+    parser.add_argument("--prescan-fraction", type=float, default=.7, help="Threshold fraction a coarse maximum must reach")
     parser.add_argument("--period-oversample", type=float, default=3.)
     parser.add_argument("--batch", type=int, help="Maximum periods processed in a fold batch")
     parser.add_argument("--capacity", type=int, default=131072, help="Covariance candidate-buffer capacity")
@@ -162,6 +164,7 @@ def main(argv=None):
             noise_degree=args.noise_degree, correlated_noise=not args.no_red_noise,
             ingress_fractions=args.ingress_fractions, shape_layers=args.shape_layers,
             phase_oversample=args.phase_oversample, period_oversample=args.period_oversample,
+            prescan_factor=args.prescan_factor, prescan_fraction=args.prescan_fraction,
             period_batch=args.batch, candidate_capacity=args.capacity, max_fold_mib=args.max_fold_mib,
             model_comparison=not args.signal_only, planet_prior=args.planet_prior,
             binary_prior=args.binary_prior, planet_depth_scale=args.planet_depth_scale,

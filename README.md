@@ -149,6 +149,19 @@ The default duration bank contains 13 widths from 0.5 to approximately 7.28 hour
 Shapes use ingress fractions 0, 0.2 and 0.45 with four nested layers. In extended
 mode, quadratic limb-darkened disk profiles use weighted nested intervals. The period grid
 obeys `baseline * (P_next / P - 1) <= min_duration / period_oversample`.
+The fused diagonal scan runs in two stages. Every period is first scanned on
+a phase grid coarser by `prescan_factor` (default 2); only periods whose coarse
+maximum reaches `prescan_fraction` (default 0.7) of the threshold are scanned
+on the full grid. A template misaligned by half a coarse bin keeps at least
+`1 - prescan_factor / (2 * phase_oversample)` of its amplitude, 75% with the
+defaults, so the margin to 0.7 covers noise fluctuations of the coarse value.
+Set `prescan_factor=1` (`--prescan-factor 1`) for a single full-grid scan.
+Template ranking inside a phase tile uses float32 cross ratios; the winner and
+any near tie are recomputed exactly in float64, and reported scores and depths
+are float64 throughout. Folded fields are stored interleaved per phase bin with
+the bins repeated once, so interval sums are two contiguous loads without wrap
+handling.
+
 `noise_degree=0` uses diagonal precision. Degrees 1–4 fit localized polynomial
 covariance modes. The comparison kernel folds precision-weighted sufficient
 statistics and covariance-mode projections over twice each trial period.

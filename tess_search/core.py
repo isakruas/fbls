@@ -10,9 +10,13 @@ import time
 import torch
 import triton
 
-from .kernels import fold_fields, scan_bounds, scan_floor, refine_modes
+from .kernels import fold_fields, doubled_cumulative, scan_bounds, scan_floor, refine_modes
 from .local_kernel import refine_local_modes
 from .period_kernel import diagonal_tiles, diagonal_merge, fold_comparison, fold_period_fields, comparison_screen, joint_tiles, joint_merge
+
+
+# Phase-tile width and warps of the fused diagonal scan; tuned on an RTX 3050.
+SCAN_TILE, SCAN_WARPS = 128, 4
 
 
 def gpu64(value):
@@ -744,10 +748,45 @@ def compare_search(ready, periods, durations, comparison, threshold=7.1,
     return result, stats
 
 
+def _coarse_scan(ready, ps, ds, rho, nb, ingress, shape_factors, ns, shape_layers, tile, warps, batch, max_fold_mib):
+    """Best per-period amplitude statistic on a coarse phase grid (fused diagonal path)."""
+    n = len(ready.time)
+    scores = torch.full((len(ps),), -torch.inf, device="cuda", dtype=torch.float64)
+    cursor = 0
+    while cursor < len(ps):
+        stop = min(cursor + batch, len(ps))
+        pp = ps[cursor:stop]
+        if len(pp) * 4 * (4 * nb + 2) * 8 > max_fold_mib * 2**20 and len(pp) > 1:
+            batch = max(1, len(pp) // 2)
+            continue
+        scales = (nb / pp).contiguous()
+        folded = torch.zeros((len(pp), nb, 4), device="cuda", dtype=torch.float64)
+        fold_fields[(len(pp), triton.cdiv(n, 256))](ready.time, ready.fields, scales, folded, n, nb, 256, enable_fp_fusion=False)
+        cumulative = doubled_cumulative(folded)
+        del folded
+        tiles = triton.cdiv(nb, tile)
+        parts = torch.empty((len(pp), tiles, 9), device="cuda", dtype=torch.float64)
+        keys = torch.empty((len(pp), tiles), device="cuda", dtype=torch.int64)
+        invalid = torch.zeros(len(pp), device="cuda", dtype=torch.int32)
+        retries = torch.empty((len(pp), tiles), device="cuda", dtype=torch.int32)
+        records = torch.empty((len(pp), 9), device="cuda", dtype=torch.float64)
+        score = torch.empty(len(pp), device="cuda", dtype=torch.float64)
+        depth = torch.empty_like(score)
+        diagonal_tiles[(tiles, len(pp))](cumulative, pp, scales, ds, rho, ingress, shape_factors, ready.baseline_norm,
+                                         parts, keys, invalid, retries, n, nb, len(ds), ns, shape_layers, tiles, tile,
+                                         num_warps=warps, enable_fp_fusion=False)
+        diagonal_merge[(len(pp),)](parts, keys, pp, scales, records, score, depth, tiles,
+                                   triton.next_power_of_2(tiles), num_warps=4, enable_fp_fusion=False)
+        scores[cursor:stop] = score
+        cursor = stop
+    return scores
+
+
 def search(model, periods, durations, threshold=7.1, phase_oversample=4,
            ingress_fractions=(0., 0.2), shape_layers=4, period_batch=None,
            candidate_capacity=131072, adaptive=True, numerical_guard=1e-10,
-           max_fold_mib=128, max_cycles=32768, reduce="all", noise_scale=None):
+           max_fold_mib=128, max_cycles=32768, reduce="all", noise_scale=None,
+           prescan_factor=1, prescan_fraction=.7):
     """Search the finite bank; peak extraction is separate.
 
     reduce="all" returns every bank template above threshold. reduce="period"
@@ -764,10 +803,22 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
     Period batches shrink and retry on candidate-buffer overflow. They never
     silently truncate. Phase bins define the exact finite staircase bank;
     covariance-mode refinement uses the identical integer-cell convention.
+
+    With prescan_factor > 1 (fused diagonal path only), every period is first
+    scanned on a phase grid coarser by that factor; only periods whose coarse
+    maximum reaches prescan_fraction * threshold are scanned on the full grid.
+    A template misaligned by half a coarse bin keeps at least
+    1 - 1 / (2 * phase_oversample / prescan_factor) of its amplitude, so the
+    default pair (2, 0.7) retains every template able to reach the threshold
+    up to noise fluctuations below 5% of its amplitude. Returned rows are
+    always full-grid results.
     """
     if reduce not in ("all", "period"):
         raise ValueError("reduce must be 'all' or 'period'")
-    period_tile, period_warps = 128, 4
+    if (isinstance(prescan_factor, bool) or not isinstance(prescan_factor, int) or prescan_factor < 1
+            or not 0 < prescan_fraction <= 1):
+        raise ValueError("prescan_factor must be a positive integer and prescan_fraction in (0, 1]")
+    period_tile, period_warps = SCAN_TILE, SCAN_WARPS
     per_period = reduce == "period"
     if period_batch is None:
         period_batch = 512 if per_period else 32
@@ -797,6 +848,7 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
     nb = max(8, math.ceil(phase_oversample * float(ps[-1]) / minimum_duration))
     n, rank = len(ready.time), len(ready.beta)
     fused_diagonal = per_period and rank == 0
+    prescan = fused_diagonal and prescan_factor > 1 and nb // prescan_factor >= 8
     ingress_tensor = gpu64(ingress_fractions) if fused_diagonal else None
     shape_factors = gpu64([[1 - 2 * ingress * (layer / (shape_layers - 1) if shape_layers > 1 else 0.)
                            for layer in range(shape_layers)] for ingress in ingress_fractions]) if fused_diagonal else None
@@ -818,6 +870,9 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
              "backend": "fused_diagonal" if fused_diagonal else "covariance_modes",
              "phase_tile_winners": 0,
              "exact_tile_retries": 0,
+             "prescan_factor": prescan_factor if prescan else 1,
+             "prescan_fraction": prescan_fraction if prescan else None,
+             "prescan_periods": len(ps), "prescan_survivors": len(ps),
              "templates_scanned": 0, "upper_bound_survivors": 0,
              "mode_evaluations": 0, "batches": 0, "overflow_retries": 0,
              "phase_oversample": phase_oversample, "shape_layers": shape_layers,
@@ -831,10 +886,18 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
     cursor, batch = 0, period_batch
     scan_start = time.perf_counter()
     stats["seconds_bank_setup"] = scan_start - start - preparation
+    if prescan:
+        coarse = _coarse_scan(ready, ps, ds, rho, nb // prescan_factor, ingress_tensor, shape_factors,
+                              len(ingress_fractions), shape_layers, period_tile, period_warps, period_batch,
+                              max_fold_mib)
+        keep = torch.isfinite(coarse) & (coarse >= prescan_fraction * threshold)
+        ps = ps[keep].contiguous()
+        stats["prescan_survivors"] = len(ps)
+        stats["seconds_prescan"] = time.perf_counter() - scan_start
     while cursor < len(ps):
         stop = min(cursor + batch, len(ps))
         pp = ps[cursor:stop]
-        expected_bytes = len(pp) * 4 * (2 * nb + 1) * 8
+        expected_bytes = len(pp) * 4 * (4 * nb + 2) * 8
         if expected_bytes > max_fold_mib * 2**20:
             if len(pp) == 1:
                 raise MemoryError("One folded period exceeds max_fold_mib; increase the explicit memory budget")
@@ -852,10 +915,11 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
             beta_bound = torch.minimum(beta0, coefficient[:, None] * max_window_counts[None, :]).contiguous()
         else:
             beta_bound = beta0.expand(len(pp), len(ds)).contiguous()
-        folded = torch.zeros((len(pp), 4, nb), device="cuda", dtype=torch.float64)
+        folded = torch.zeros((len(pp), nb, 4), device="cuda", dtype=torch.float64)
         torch.cuda.synchronize(); tic = time.perf_counter()
         fold_fields[(len(pp), triton.cdiv(n, 256))](ready.time, ready.fields, scales, folded, n, nb, 256, enable_fp_fusion=False)
-        cumulative = torch.cat((torch.zeros((len(pp), 4, 1), device="cuda", dtype=torch.float64), folded.cumsum(2)), dim=2).contiguous()
+        # Doubled cumulative positions (2 nb + 1) with interleaved fields: wrap-free, 32-byte interval reads.
+        cumulative = doubled_cumulative(folded)
         del folded
         torch.cuda.synchronize(); fold_time += time.perf_counter() - tic
         if fused_diagonal:
