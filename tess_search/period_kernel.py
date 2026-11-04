@@ -8,7 +8,7 @@ from .kernels import circular_sum
 
 @triton.jit
 def shape_sums(C, row, j, k, outer_a, outer_p, outer_w, ingress, Factors, si,
-               NB: tl.constexpr, LAYERS: tl.constexpr):
+               NB, LAYERS: tl.constexpr):
     a = tl.where(ingress == 0., outer_a, outer_a / LAYERS)
     hp = tl.where(ingress == 0., outer_p, outer_p / LAYERS)
     coefficient = tl.full([], 1. / (LAYERS * LAYERS), tl.float64)
@@ -27,7 +27,7 @@ def shape_sums(C, row, j, k, outer_a, outer_p, outer_w, ingress, Factors, si,
 
 @triton.jit
 def tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, f, tile,
-                N, NB: tl.constexpr, ND: tl.constexpr, NS: tl.constexpr,
+                N, NB, ND: tl.constexpr, NS: tl.constexpr,
                 LAYERS: tl.constexpr, B: tl.constexpr, FAST: tl.constexpr):
     j = tile * B + tl.arange(0, B)
     jj = tl.minimum(j, NB - 1)
@@ -111,7 +111,7 @@ def tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, f, tile,
 
 @triton.jit
 def diagonal_tiles(C, Period, Scale, Dur, Rho, Ingress, Factors, BaseNorm, Parts, Keys, Invalid, Retries,
-                   N, NB: tl.constexpr, ND: tl.constexpr,
+                   N, NB, ND: tl.constexpr,
                    NS: tl.constexpr, LAYERS: tl.constexpr, NT: tl.constexpr,
                    B: tl.constexpr):
     tile = tl.program_id(0)
@@ -176,7 +176,7 @@ def diagonal_merge(Parts, Keys, Period, Scale, Records, Score, Depth,
 
 
 @triton.jit
-def fold_comparison(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr,
+def fold_comparison(T, X, Scale, Out, N, NB,
                     NF: tl.constexpr, B: tl.constexpr):
     """Retain cycle parity by accumulating sufficient statistics over two periods."""
     f = tl.program_id(0)
@@ -188,7 +188,7 @@ def fold_comparison(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr,
 
 
 @triton.jit
-def fold_period_fields(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr,
+def fold_period_fields(T, X, Scale, Out, N, NB,
                        NF: tl.constexpr, FIRST: tl.constexpr, B: tl.constexpr):
     f, field = tl.program_id(0),tl.program_id(1)
     i=tl.program_id(2)*B+tl.arange(0,B)
@@ -198,7 +198,7 @@ def fold_period_fields(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr,
 
 
 @triton.jit
-def layered_sum(C, row, start, width, Shape, si, NB: tl.constexpr, LAYERS: tl.constexpr,
+def layered_sum(C, row, start, width, Shape, si, NB, LAYERS: tl.constexpr,
                 SQUARED: tl.constexpr):
     """Integrate a staircase or its square using nested interval sums."""
     start=start+tl.zeros_like(row)
@@ -238,7 +238,7 @@ def positive_amplitude_evidence(a, q, tau):
 
 @triton.jit
 def comparison_screen(C, Beta, Scale, Dur, Rho, DurationLogMass, Ingress, Shape, ShapePrior, Parameters, BaseNorm, Scores, N,
-                      NB: tl.constexpr, NF: tl.constexpr, RANK: tl.constexpr,
+                      NB, NF: tl.constexpr, RANK: tl.constexpr,
                       ND: tl.constexpr, NS: tl.constexpr, LAYERS: tl.constexpr,
                       NT: tl.constexpr, B: tl.constexpr):
     """Exact amplitude gate on the identical finite bank before full evidence integration."""
@@ -264,7 +264,6 @@ def comparison_screen(C, Beta, Scale, Dur, Rho, DurationLogMass, Ingress, Shape,
                 + circular_sum(C, row + 3 * (NB + 1), jj + NB // 2, k, NB)
         usable = (j < NB // 2) & (raw_k < NB // 8) & (count >= 3) & (count <= N - 3)
         for si in tl.range(NS, loop_unroll_factor=1):
-            ingress = tl.load(Ingress + si)
             a = layered_sum(C, row, jj, k, Shape, si, NB, LAYERS, False) \
                 + layered_sum(C, row, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
             pe = layered_sum(C, row + NB + 1, jj, k, Shape, si, NB, LAYERS, False)
@@ -347,7 +346,7 @@ def modulated_pair(a,b,q,r,cross,g0,g1,h0,h1,Modulation,f,di,family,rho2,ND:tl.c
 
 
 @triton.jit
-def harmonic_pair(C,row,j,s,k,ks,Shape,si,NB:tl.constexpr,LAYERS:tl.constexpr,
+def harmonic_pair(C,row,j,s,k,ks,Shape,si,NB,LAYERS:tl.constexpr,
                   FIRST:tl.constexpr,PAIRED:tl.constexpr,ENABLED:tl.constexpr):
     g0=tl.full(j.shape,0.,tl.float64);g1=tl.full(j.shape,0.,tl.float64)
     h0=tl.full(j.shape,0.,tl.float64);h1=tl.full(j.shape,0.,tl.float64)
@@ -365,7 +364,7 @@ def harmonic_pair(C,row,j,s,k,ks,Shape,si,NB:tl.constexpr,LAYERS:tl.constexpr,
 
 
 @triton.jit
-def astrometric_pair(C,row,j,s,k,ks,Shape,si,Norm,NB:tl.constexpr,LAYERS:tl.constexpr,
+def astrometric_pair(C,row,j,s,k,ks,Shape,si,Norm,NB,LAYERS:tl.constexpr,
                      FIRST:tl.constexpr,NG:tl.constexpr,PAIRED:tl.constexpr):
     axis=tl.arange(0,2)[:,None]
     jj=j[None,:]
@@ -425,14 +424,14 @@ def log_sum(values):
 
 @triton.jit
 def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shape, ShapePrior, BaseNorm,
-                Parameters, Orbit, Alias, Modulation, AstroNorm, Floors, Parts, N, NB: tl.constexpr, NF: tl.constexpr,
+                Parameters, Orbit, Alias, Modulation, AstroNorm, Floors, Parts, N, NB, NF: tl.constexpr,
                 RANK: tl.constexpr, ND: tl.constexpr, NS: tl.constexpr,
                 LAYERS: tl.constexpr, NT: tl.constexpr, B: tl.constexpr,
                 THRESHOLD: tl.constexpr, NORB: tl.constexpr, ASTART: tl.constexpr, NG: tl.constexpr,
                 HSTART: tl.constexpr, HARMONIC: tl.constexpr, PILOT: tl.constexpr = False, PARTITIONED: tl.constexpr = False):
     """Compare normalized eclipse hypotheses at every ephemeris before either maximization."""
     part_index, f = tl.program_id(0), tl.program_id(1)
-    phase_tiles=triton.cdiv(NB//2,B)
+    phase_tiles=tl.cdiv(NB//2,B)
     tile=part_index%phase_tiles if PARTITIONED else part_index
     pilot_key = tl.load(Floors + f * 3 + 2).to(tl.int64)
     j = tl.full([B], 0, tl.int32) + pilot_key % (NB // 2) if PILOT else tile * B + tl.arange(0, B)
@@ -442,7 +441,6 @@ def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shap
     scale = tl.load(Scale + f)
     Parameters += f * 30
     tau_p, tau_b, tau_d = tl.load(Parameters), tl.load(Parameters + 1), tl.load(Parameters + 2)
-    log_pi_p, log_pi_b, log_pi_0 = tl.load(Parameters + 3), tl.load(Parameters + 4), tl.load(Parameters + 5)
     best_joint = tl.full([B], -float("inf"), tl.float64)
     best_signal = tl.full([B], -float("inf"), tl.float64)
     joint_key = tl.full([B], 9223372036854775807, tl.int64)
@@ -479,7 +477,6 @@ def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shap
         usable = (j < NB // 2) & (raw_k < NB // 8) & (count >= 3) & (count <= N - 3)
         for si_loop in tl.range(1 if PILOT or PARTITIONED else NS, loop_unroll_factor=1):
             si = pilot_key // ((NB // 2) * ND) if PILOT else part_index//(phase_tiles*ND) if PARTITIONED else si_loop
-            ingress = tl.load(Ingress + si)
             ae = layered_sum(C, row, jj, k, Shape, si, NB, LAYERS, False)
             ao = layered_sum(C, row, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
             pe = layered_sum(C, row + NB + 1, jj, k, Shape, si, NB, LAYERS, False)
@@ -654,7 +651,7 @@ def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shap
 
 @triton.jit
 def joint_merge(Parts, Period, Scale, Dur, Ingress, Parameters, LogMass, Table, NT: tl.constexpr,
-                ND: tl.constexpr, NB: tl.constexpr, B: tl.constexpr):
+                ND: tl.constexpr, NB, B: tl.constexpr):
     f, selection = tl.program_id(0), tl.program_id(1)
     i = tl.arange(0, B)
     base = ((f.to(tl.int64) * NT + i) * 2 + selection) * 15
@@ -688,26 +685,3 @@ def joint_merge(Parts, Period, Scale, Dur, Ingress, Parameters, LogMass, Table, 
     tl.store(out + 11, tl.load(part + 9) * period)
     tl.store(out + 12, tl.load(Ingress + si))
     tl.store(out + 13, 1. if selection == 0 else 2.)
-
-
-@triton.jit
-def evidence_peaks(Table, Mask, N, RADIUS: tl.constexpr, WINDOW: tl.constexpr, B: tl.constexpr):
-    """Retain evidence maxima among ephemerides unresolved within the transit drift window."""
-    i = tl.program_id(0)
-    p, epoch = tl.load(Table + i * 14), tl.load(Table + i * 14 + 1)
-    duration, evidence = tl.load(Table + i * 14 + 2), tl.load(Table + i * 14 + 6)
-    superior = tl.full([B], False, tl.int1)
-    for chunk in range(triton.cdiv(2 * WINDOW + 1, B)):
-        offset = chunk * B + tl.arange(0, B)
-        j = i + offset - WINDOW
-        valid = (offset < 2 * WINDOW + 1) & (j >= 0) & (j < N)
-        np = tl.load(Table + j * 14, valid, other=1.)
-        ne = tl.load(Table + j * 14 + 1, valid, other=0.)
-        nd = tl.load(Table + j * 14 + 2, valid, other=0.)
-        score = tl.load(Table + j * 14 + 6, valid, other=-float("inf"))
-        phase = ne - epoch + p / 2.
-        phase -= tl.floor(phase / p) * p
-        phase -= p / 2.
-        compatible = (tl.abs(np / p - 1.) <= tl.full([], RADIUS, tl.float64)) & (tl.abs(phase) <= duration + nd)
-        superior |= valid & compatible & ((score > evidence) | ((score == evidence) & (j < i)))
-    tl.store(Mask + i, tl.sum(superior.to(tl.int32), 0) == 0)

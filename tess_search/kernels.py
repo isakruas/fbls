@@ -4,7 +4,7 @@ import triton.language as tl
 
 
 @triton.jit
-def fold_fields(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr, B: tl.constexpr):
+def fold_fields(T, X, Scale, Out, N, NB, B: tl.constexpr):
     f = tl.program_id(0)
     i = tl.program_id(1) * B + tl.arange(0, B)
     t = tl.load(T + i, i < N, other=0.)
@@ -18,7 +18,7 @@ def fold_fields(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr, B: tl.const
 
 
 @triton.jit
-def circular_sum(C, row, start, width, NB: tl.constexpr):
+def circular_sum(C, row, start, width, NB):
     j = start % NB
     end = j + width
     left = tl.load(C + row + j)
@@ -28,7 +28,7 @@ def circular_sum(C, row, start, width, NB: tl.constexpr):
 
 
 @triton.jit
-def template_sums(C, f, di, j, Scale, Dur, N: tl.constexpr, NB: tl.constexpr,
+def template_sums(C, f, di, j, Scale, Dur, N, NB,
                   INGRESS: tl.constexpr, LAYERS: tl.constexpr, B: tl.constexpr):
     """Numerator, baseline projection and diagonal norm of one staircase template."""
     valid = j < NB
@@ -56,7 +56,7 @@ def template_sums(C, f, di, j, Scale, Dur, N: tl.constexpr, NB: tl.constexpr,
 
 @triton.jit
 def scan_floor(C, Scale, Dur, Rho, BaseNorm, Floor,
-               N: tl.constexpr, NB: tl.constexpr,
+               N, NB,
                INGRESS: tl.constexpr, LAYERS: tl.constexpr,
                GUARD: tl.constexpr, B: tl.constexpr):
     """Per-period maximum of a lower score bound in exact arithmetic.
@@ -82,7 +82,7 @@ def scan_floor(C, Scale, Dur, Rho, BaseNorm, Floor,
 
 @triton.jit
 def scan_bounds(C, Period, Scale, Dur, Rho, Beta0, BaseNorm, Records, Counter, Floor,
-                N: tl.constexpr, NB: tl.constexpr, ND: tl.constexpr,
+                N, NB, ND: tl.constexpr,
                 CAP: tl.constexpr, THRESHOLD: tl.constexpr,
                 INGRESS: tl.constexpr, LAYERS: tl.constexpr,
                 GUARD: tl.constexpr, B: tl.constexpr, USE_FLOOR: tl.constexpr):
@@ -122,7 +122,7 @@ def scan_bounds(C, Period, Scale, Dur, Rho, Beta0, BaseNorm, Records, Counter, F
 
 
 @triton.jit
-def lower_cell(T, edge, scale, N: tl.constexpr, STEPS: tl.constexpr):
+def lower_cell(T, edge, scale, N, STEPS: tl.constexpr):
     lo = tl.full(edge.shape, 0, tl.int32)
     hi = tl.full(edge.shape, N, tl.int32)
     for _ in range(STEPS):
@@ -136,7 +136,7 @@ def lower_cell(T, edge, scale, N: tl.constexpr, STEPS: tl.constexpr):
 
 @triton.jit
 def refine_modes(T, Prefix, Beta, Support, Records, Score, Depth, Used, Status, Floor,
-                 N: tl.constexpr, NB: tl.constexpr, R: tl.constexpr,
+                 N, NB, R: tl.constexpr,
                  THRESHOLD: tl.constexpr, ADAPTIVE: tl.constexpr,
                  LAYERS: tl.constexpr, GUARD: tl.constexpr,
                  STEPS: tl.constexpr, CYCLES: tl.constexpr, B: tl.constexpr,
@@ -156,7 +156,6 @@ def refine_modes(T, Prefix, Beta, Support, Records, Score, Depth, Used, Status, 
     actual_layers = tl.where(ingress == 0., 1, LAYERS)
     # Store geometry in registers and reuse it across every covariance mode.
     cycle = tl.arange(0, B).to(tl.int64) - 1
-    in_range = cycle < CYCLES
     lowers = ()
     uppers = ()
     for layer in tl.static_range(LAYERS):

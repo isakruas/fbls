@@ -124,34 +124,6 @@ class SearchResult:
     statistics: dict
     origin: float
 
-    def candidates(self, limit=20, period_tolerance=0.002, epoch_tolerance=1.):
-        """GPU nonmaximum suppression; raw survivors remain available in records."""
-        if limit < 1 or not len(self.scores):
-            return []
-        remaining = self.scores.clone()
-        output = []
-        for _ in range(min(limit, len(remaining))):
-            index = int(torch.argmax(remaining))
-            if not math.isfinite(float(remaining[index])):
-                break
-            row = self.records[index]
-            p, scale, j, width = [float(x) for x in row[:4]]
-            epoch = (j + width / 2) / scale + self.origin
-            duration = width / scale
-            output.append({"period_days": p, "epoch_bjd": epoch,
-                           "duration_hours": duration * 24,
-                           "ingress_fraction": float(row[7]),
-                           "snr": float(self.scores[index]),
-                           "depth": float(self.depths[index]),
-                           "noise_modes_evaluated": int(self.modes_used[index])})
-            periods = self.records[:, 0]
-            epochs = (self.records[:, 2] + self.records[:, 3] / 2) / self.records[:, 1] + self.origin
-            phase = (epochs - epoch + p / 2).remainder(p) - p / 2
-            duplicate = ((periods / p - 1).abs() <= period_tolerance) & (phase.abs() <= duration * epoch_tolerance)
-            remaining[duplicate] = -torch.inf
-            remaining[index] = -torch.inf
-        return output
-
 
 def period_grid(minimum, maximum, baseline, minimum_duration, oversample=3.):
     """GPU logarithmic period grid with a uniform accumulated-time drift bound.
@@ -297,30 +269,61 @@ def biweight_flatten(time, relative_flux, window=.75, gap=.5, c=5., iterations=1
     return output
 
 
-def correlated_noise_factors(time, residual, sigma, durations, min_fill=.5, minimum_bins=20):
+def correlated_noise_factors(time, residual, sigma, durations, min_fill=.5, minimum_bins=20,
+                             return_details=False):
     """Per-duration factor rho_D >= 1 for correlated noise at the transit time scale.
 
     Residuals are averaged in contiguous bins of length D with inverse-variance
     weights; rho_D is the robust (MAD) scatter of the standardized bin means.
     For white noise with correct errors rho_D is approximately one. Dividing
     the amplitude statistic by rho_D applies an empirical duration-wise scale
-    correction estimated from the standardized residual means.
+    correction estimated from the standardized residual means. Under-sampled
+    durations inherit a coherent-noise extrapolation from the nearest supported
+    duration, floored by their own measured scatter. If none is supported, use
+    the unbinned standardized scatter as the reference. This conservative
+    working model is not a statistical confidence bound.
     """
     weights = sigma.square().reciprocal()
     steps = time[1:] - time[:-1]
     cadence = float(steps[steps > 0].median())
-    factors = []
-    for duration in durations.tolist() if torch.is_tensor(durations) else durations:
+    widths = gpu64(durations)
+    if widths.ndim != 1 or not len(widths) or not bool(torch.isfinite(widths).all() & (widths > 0).all()):
+        raise ValueError("Positive finite duration vector required")
+    if minimum_bins < 3 or not 0 < min_fill <= 1:
+        raise ValueError("Require at least three bins and a valid minimum fill")
+    factors, counts_by_duration = [], []
+    for duration in widths.tolist():
         cell = ((time - time[0]) / duration).floor().to(torch.int64)
         _, inverse, counts = torch.unique(cell, return_inverse=True, return_counts=True)
         total = torch.zeros(len(counts), device="cuda", dtype=torch.float64).scatter_add_(0, inverse, weights)
         mean = torch.zeros_like(total).scatter_add_(0, inverse, weights * residual) / total
         z = (mean * total.sqrt())[counts >= min_fill * duration / cadence]
-        if len(z) < minimum_bins:
-            factors.append(1.)
-            continue
-        factors.append(max(1., float(1.4826 * (z - z.median()).abs().median())))
-    return torch.tensor(factors, device="cuda", dtype=torch.float64)
+        counts_by_duration.append(len(z))
+        factors.append((1.4826 * (z - z.median()).abs().median()).clamp_min(1.)
+                       if len(z) >= 3 else torch.ones((), device="cuda", dtype=torch.float64))
+    measured = torch.stack(factors)
+    supported = torch.tensor(counts_by_duration, device="cuda") >= minimum_bins
+    result = measured.clone()
+    reference = torch.full_like(widths, cadence)
+    if bool(supported.any()):
+        valid = torch.nonzero(supported).flatten()
+        valid = valid[widths[valid].argsort(stable=True)]
+        nearest = (widths[:, None].log() - widths[valid][None, :].log()).abs().argmin(1)
+        anchor = valid[nearest]
+        reference = widths[anchor]
+        inherited = measured[anchor] * (widths / reference).clamp_min(1.).sqrt()
+        source = "nearest_supported_duration"
+    else:
+        standardized = residual / sigma
+        scatter = (1.4826 * (standardized - standardized.median()).abs().median()).clamp_min(1.)
+        inherited = scatter * (widths / cadence).clamp_min(1.).sqrt()
+        source = "unbinned_coherent_reference"
+    result = torch.where(supported, measured, torch.maximum(measured, inherited))
+    details = {"usable_bins": counts_by_duration, "minimum_bins": minimum_bins,
+               "estimated_directly": supported.tolist(), "fallback_reference": source,
+               "reference_duration_days": reference.tolist(),
+               "fallback_model": "coherent square-root duration scaling with measured-scatter floor"}
+    return (result, details) if return_details else result
 
 
 @dataclass
@@ -550,81 +553,6 @@ def orbital_fields(ready, periods, rho, comparison):
         a = a/rho[None,:,None,None].pow(4)
         corrections.append(torch.stack((a[:,:,0,0],a[:,:,0,1],a[:,:,1,1],d[:,:,0],d[:,:,1],base),-1))
     return wx.permute(0,2,1).contiguous(),torch.stack(corrections,2).contiguous()
-
-
-def prepare_curve(time_values, flux_values, errors=None, sectors=None, bin_minutes=10.,
-                  window=.75, clip_sigma=4., centroid=None, centroid_err=None):
-    """Common detector input: normalize, bin, detrend and clip positive outliers (GPU).
-
-    Negative excursions (dips) are never clipped. Errors are the propagated
-    formal errors inflated to the robust adjacent-difference scatter.
-    """
-    diagonal = fit_segment_noise(time_values, flux_values, errors, sectors, bin_minutes=bin_minutes, degree=0,
-                                  centroid=centroid, centroid_err=centroid_err)
-    flat = biweight_flatten(diagonal.time, -diagonal.deficit, window)
-    sigma = diagonal.variance.sqrt()
-    scale = 1.4826 * (flat - flat.median()).abs().median()
-    keep = torch.isfinite(flat) & (flat <= clip_sigma * scale)
-    astrometry = diagonal.ancillary
-    if astrometry is not None:
-        for label in torch.unique(astrometry["group"]):
-            for axis in range(2):
-                valid = (astrometry["group"] == label) & torch.isfinite(astrometry["variance"][:, axis])
-                if int(valid.sum()) >= 6:
-                    astrometry["value"][valid, axis] = biweight_flatten(diagonal.time[valid], astrometry["value"][valid, axis], window)
-        astrometry = {key: value[keep] for key, value in astrometry.items()}
-    return PreparedCurve(diagonal.time[keep] + diagonal.origin, flat[keep], sigma[keep],
-                         {**diagonal.provenance, "detrending": f"biweight window {window} d",
-                          "positive_clip_sigma": clip_sigma, "clipped": int((~keep).sum()),
-                          "observations": int(keep.sum()), "centroid_available": astrometry is not None}, astrometry)
-
-
-def search_curve(curve, periods, durations, threshold=4., noise_degree=2, correlated_noise=True,
-                 ingress_fractions=(0., 0.2), band_factor=2., comparison=None, **options):
-    """Best template per period over a full period range for one prepared curve.
-
-    Periods are searched in bands spanning at most `band_factor`; each band
-    uses durations below a quarter of its shortest period. The first five table
-    columns are period, epoch_bjd, duration_days, score and depth. Model
-    comparison appends evidence, binary diagnostics and selection flags.
-    """
-    if not math.isfinite(band_factor) or band_factor <= 1:
-        raise ValueError("band_factor must be finite and greater than one")
-    ps, ds = gpu64(periods), gpu64(durations).sort().values
-    if (ps.ndim != 1 or not len(ps) or ds.ndim != 1 or not len(ds)
-            or not bool(torch.isfinite(ps).all() & (ps > 0).all() & (ps[1:] >= ps[:-1]).all()
-                        & torch.isfinite(ds).all() & (ds > 0).all())):
-        raise ValueError("Use positive finite periods and durations, with periods sorted")
-    if float(ds[0]) >= float(ps[0]) / 4:
-        raise ValueError("At least one duration must be below one quarter of the minimum period")
-    model = fit_segment_noise(curve.time, 1 + curve.flux, curve.sigma, bin_minutes=0, degree=noise_degree)
-    ready = model.prepare()
-    rho = correlated_noise_factors(model.time, -model.deficit, model.variance.sqrt(), ds) if correlated_noise else torch.ones_like(ds)
-    tables, stats = [], []
-    lo = float(ps[0])
-    while lo <= float(ps[-1]):
-        hi = lo * band_factor
-        selected = (ps >= lo) & (ps < hi)
-        chosen = ds < lo / 4
-        if bool(selected.any()) and bool(chosen.any()):
-            if comparison is not None:
-                table, details = compare_search(ready, ps[selected], ds[chosen], comparison,astrometry=curve.astrometry,
-                    threshold=threshold, ingress_fractions=ingress_fractions,
-                    noise_scale=rho[chosen], **options)
-                tables.append(table)
-            else:
-                result = search(ready, ps[selected], ds[chosen], threshold=threshold, reduce="period",
-                                ingress_fractions=ingress_fractions, noise_scale=rho[chosen], **options)
-                row = result.records
-                tables.append(torch.stack((row[:, 0], (row[:, 2] + row[:, 3] / 2) / row[:, 1] + result.origin,
-                                           row[:, 3] / row[:, 1], result.scores, result.depths), dim=1))
-                details = result.statistics
-            stats.append({"band": [lo, min(hi, float(ps[-1]))], **{k: v for k, v in details.items()
-                                                                     if k != "noise_model"}})
-        lo = hi
-    table = torch.cat(tables) if tables else torch.empty((0, 14 if comparison is not None else 5), device="cuda", dtype=torch.float64)
-    return table[table[:, 0].argsort()], {"noise_model": model.provenance,
-                                         "correlated_noise_factors": rho.tolist(), "bands": stats}
 
 
 def compare_search(ready, periods, durations, comparison, threshold=7.1,
@@ -1074,3 +1002,178 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
     torch.cuda.synchronize()
     stats["seconds_total"] = time.perf_counter() - start
     return SearchResult(rr, ss, dd, mm, stats, ready.origin)
+
+
+def detrending_windows(durations_days, minimum_days=.4, factor=3., maximum_days=3.5):
+    """Group durations by their detrending window: clamp(factor * D, minimum, maximum).
+
+    Returns a list of (window_days, duration_indices) sorted by window; indices
+    refer to the supplied duration vector. Equal windows share one family so
+    the finest phase grid is only scanned once per window.
+    """
+    widths = gpu64(durations_days)
+    if widths.ndim != 1 or not len(widths) or not bool(torch.isfinite(widths).all() & (widths > 0).all()):
+        raise ValueError("Positive finite duration vector required")
+    if not 0 < minimum_days <= maximum_days or factor <= 0:
+        raise ValueError("Require 0 < minimum window <= maximum window and a positive factor")
+    windows = (factor * widths).clamp(minimum_days, maximum_days)
+    windows = (windows * 1e6).round() / 1e6
+    families = []
+    for window in torch.unique(windows).tolist():
+        families.append((window, torch.nonzero(windows == window).flatten().tolist()))
+    return families
+
+
+def prepare_families(time_values, flux_values, errors=None, sectors=None, durations_days=(), bin_minutes=10.,
+                     window_min=.4, window_factor=3., window_max=3.5, clip_sigma=4.,
+                     centroid=None, centroid_err=None):
+    """Normalize and bin once, then detrend separately for each duration family.
+
+    Each family receives the window from `detrending_windows`; its residual,
+    errors and astrometry are clipped independently. Returns a list of
+    (PreparedCurve, family_duration_indices).
+    """
+    diagonal = fit_segment_noise(time_values, flux_values, errors, sectors, bin_minutes=bin_minutes, degree=0,
+                                 centroid=centroid, centroid_err=centroid_err)
+    sigma = diagonal.variance.sqrt()
+    output = []
+    for window, indices in detrending_windows(durations_days, window_min, window_factor, window_max):
+        flat = biweight_flatten(diagonal.time, -diagonal.deficit, window)
+        scale = 1.4826 * (flat - flat.median()).abs().median()
+        keep = torch.isfinite(flat) & (flat <= clip_sigma * scale)
+        astrometry = diagonal.ancillary
+        if astrometry is not None:
+            astrometry = {key: value.clone() for key, value in astrometry.items()}
+            for label in torch.unique(astrometry["group"]):
+                for axis in range(2):
+                    valid = (astrometry["group"] == label) & torch.isfinite(astrometry["variance"][:, axis])
+                    if int(valid.sum()) >= 6:
+                        astrometry["value"][valid, axis] = biweight_flatten(diagonal.time[valid], astrometry["value"][valid, axis], window)
+            astrometry = {key: value[keep] for key, value in astrometry.items()}
+        curve = PreparedCurve(diagonal.time[keep] + diagonal.origin, flat[keep], sigma[keep],
+                              {**diagonal.provenance, "detrending": f"biweight window {window} d",
+                               "window_days": window, "positive_clip_sigma": clip_sigma, "clipped": int((~keep).sum()),
+                               "observations": int(keep.sum()), "centroid_available": astrometry is not None}, astrometry)
+        output.append((curve, indices))
+    return output
+
+
+def transit_mask(time, period, epoch, duration, margin=.5):
+    """Boolean mask of observations within (1 + margin) * duration / 2 of predicted transit centers."""
+    phase = (time - epoch + period / 2).remainder(period) - period / 2
+    return phase.abs() <= (1. + margin) * duration / 2
+
+
+def event_count(time, period, epoch, duration, minimum_points=3):
+    """Number of distinct transit epochs with at least `minimum_points` in-transit observations."""
+    inside = transit_mask(time, period, epoch, duration, margin=0.)
+    if not bool(inside.any()):
+        return 0
+    cycles = ((time[inside] - epoch) / period).round().long()
+    _, counts = torch.unique(cycles, return_counts=True)
+    return int((counts >= minimum_points).sum())
+
+
+def mask_curve(curve, period, epoch, duration, margin=.5):
+    """Remove in-transit observations of one ephemeris from a prepared curve."""
+    keep = ~transit_mask(curve.time, period, epoch, duration, margin)
+    astrometry = None if curve.astrometry is None else {key: value[keep] for key, value in curve.astrometry.items()}
+    provenance = dict(curve.provenance)
+    provenance["masked_ephemerides"] = provenance.get("masked_ephemerides", []) + [
+        {"period_days": period, "epoch_bjd": epoch, "duration_days": duration, "removed": int((~keep).sum())}]
+    return PreparedCurve(curve.time[keep], curve.flux[keep], curve.sigma[keep], provenance, astrometry)
+
+
+@dataclass
+class FamilyState:
+    """Per-family noise model, duration bank and scales retained for evidence evaluation."""
+    curve: PreparedCurve
+    durations: torch.Tensor
+    duration_indices: list
+    ready: Prepared
+    rho: torch.Tensor
+    noise_details: dict
+    noise_provenance: dict
+
+
+def family_state(curve, durations, indices, noise_degree=0, correlated_noise=True):
+    """Fit the diagonal/low-rank noise model and duration noise scales for one family."""
+    ds = gpu64(durations)
+    model = fit_segment_noise(curve.time, 1 + curve.flux, curve.sigma, bin_minutes=0, degree=noise_degree)
+    ready = model.prepare()
+    if correlated_noise:
+        rho, details = correlated_noise_factors(model.time, -model.deficit, model.variance.sqrt(), ds, return_details=True)
+    else:
+        rho, details = torch.ones_like(ds), {"enabled": False}
+    return FamilyState(curve, ds, list(indices), ready, rho, details, model.provenance)
+
+
+def signal_search(state, period_min, period_max, threshold=7.1, band_factor=2., period_oversample=3., **options):
+    """Best template per period for one family over its own period grid.
+
+    The grid resolution follows the family's shortest duration. Returns the
+    five-column table (period, epoch_bjd, duration_days, score, depth), the
+    period grid and band statistics. Periods above the observing baseline are
+    excluded: they cannot show two events and belong to the single-event scan.
+    """
+    ds = state.durations.sort().values
+    baseline = float(state.ready.time[-1])
+    maximum = min(period_max, baseline)
+    # Templates must stay below one quarter of the trial period.
+    minimum = max(period_min, 4 * float(ds[0]) * (1 + 1e-9))
+    if maximum <= minimum:
+        return (torch.empty((0, 5), device="cuda", dtype=torch.float64),
+                torch.empty(0, device="cuda", dtype=torch.float64), [])
+    ps = period_grid(minimum, maximum, baseline, float(ds[0]), period_oversample)
+    tables, stats = [], []
+    lo = float(ps[0])
+    while lo <= float(ps[-1]):
+        hi = lo * band_factor
+        selected = (ps >= lo) & (ps < hi)
+        chosen = ds < lo / 4
+        if bool(selected.any()) and bool(chosen.any()):
+            result = search(state.ready, ps[selected], ds[chosen], threshold=threshold, reduce="period",
+                            noise_scale=state.rho[chosen], **options)
+            row = result.records
+            tables.append(torch.stack((row[:, 0], (row[:, 2] + row[:, 3] / 2) / row[:, 1] + result.origin,
+                                       row[:, 3] / row[:, 1], result.scores, result.depths), dim=1))
+            stats.append({"band": [lo, min(hi, float(ps[-1]))], **{k: v for k, v in result.statistics.items()
+                                                                     if k != "noise_model"}})
+        lo = hi
+    table = torch.cat(tables) if tables else torch.empty((0, 5), device="cuda", dtype=torch.float64)
+    return table, ps, stats
+
+
+def single_event_search(state, threshold=7.1, candidate_capacity=131072, **options):
+    """Template scan without folding: one trial period longer than the baseline.
+
+    Every template above threshold is returned as (period, epoch_bjd,
+    duration_days, score, depth) with the nominal period set to infinity.
+    """
+    ds = state.durations.sort().values
+    baseline = float(state.ready.time[-1])
+    trial = baseline + 2 * float(ds[-1]) + 1e-6
+    try:
+        result = search(state.ready, gpu64([trial]), ds, threshold=threshold, reduce="all",
+                        noise_scale=state.rho, candidate_capacity=candidate_capacity, **options)
+    except MemoryError:
+        return torch.empty((0, 5), device="cuda", dtype=torch.float64), {"overflow": True}
+    row = result.records
+    table = torch.stack((torch.full_like(result.scores, torch.inf),
+                         (row[:, 2] + row[:, 3] / 2) / row[:, 1] + result.origin,
+                         row[:, 3] / row[:, 1], result.scores, result.depths), dim=1)
+    return table, {k: v for k, v in result.statistics.items() if k != "noise_model"}
+
+
+def evidence_at(state, periods, comparison, threshold=7.1, **options):
+    """Joint planet/binary/noise evidence for explicit trial periods of one family."""
+    ps = gpu64(periods)
+    if not len(ps):
+        return torch.empty((0, 14), device="cuda", dtype=torch.float64), {}
+    ps = ps.sort().values
+    ds = state.durations.sort().values
+    chosen = ds < float(ps[0]) / 4
+    if not bool(chosen.any()):
+        return torch.empty((0, 14), device="cuda", dtype=torch.float64), {}
+    return compare_search(state.ready, ps, ds[chosen], comparison, threshold=threshold,
+                          noise_scale=state.rho[chosen], astrometry=state.curve.astrometry, **options)

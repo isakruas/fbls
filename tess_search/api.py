@@ -1,13 +1,12 @@
 """Pipeline-facing input preparation, search configuration and GPU results."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import math
 import time
 
 import torch
-import triton
 
-from .core import PreparedCurve, gpu64, period_grid, prepare_curve, prepare_astrometry, search_curve
-from .period_kernel import evidence_peaks
+from .core import (PreparedCurve, gpu64, prepare_families, prepare_astrometry, family_state, signal_search,
+                   single_event_search, evidence_at, transit_mask, event_count, mask_curve)
 
 
 DEFAULT_DURATIONS_HOURS = tuple(round(.5 * 1.25 ** i, 6) for i in range(13))
@@ -25,7 +24,9 @@ class SearchConfig:
     durations_hours: tuple[float, ...] = DEFAULT_DURATIONS_HOURS
     threshold: float = 7.1
     bin_minutes: float = 10.
-    window_days: float = .75
+    window_days: float = .4
+    window_factor: float = 3.
+    window_max_days: float = 3.5
     clip_sigma: float = 4.
     noise_degree: int = 0
     correlated_noise: bool = True
@@ -46,7 +47,10 @@ class SearchConfig:
     stellar_radius_solar: float | None = None
     planet_radius_scale_rj: float = 1.
     target_flux_fraction: float = 1.
-    peak_drift_durations: float = 2.
+    passes: int = 3
+    min_events: int = 2
+    evidence_candidates: int = 32
+    single_events: bool = True
     evidence_rtol: float = 1e-12
     planet_log_odds_min: float = 0.
     extended_physics: bool = False
@@ -73,9 +77,9 @@ class SearchConfig:
         object.__setattr__(self, "durations_hours", durations)
         object.__setattr__(self, "ingress_fractions", ingress)
         for name in ("period_min", "period_max", "threshold", "bin_minutes", "window_days",
-                     "clip_sigma", "period_oversample", "max_fold_mib", "planet_prior", "binary_prior",
+                     "window_factor", "window_max_days", "clip_sigma", "period_oversample", "max_fold_mib", "planet_prior", "binary_prior",
                      "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
-                     "planet_radius_scale_rj", "target_flux_fraction", "peak_drift_durations",
+                     "planet_radius_scale_rj", "target_flux_fraction",
                      "evidence_rtol", "planet_log_odds_min", "eccentricity_max", "stellar_duration_scatter",
                      "ellipsoidal_planet_scale", "ellipsoidal_binary_scale", "ellipsoidal_alpha", "planet_mass_scale_mj",
                      "centroid_planet_scale", "centroid_binary_scale"):
@@ -89,8 +93,9 @@ class SearchConfig:
             if not math.isfinite(value):
                 raise ValueError("Search parameters must be finite")
             object.__setattr__(self, name, value)
-        if not isinstance(self.correlated_noise, bool) or not isinstance(self.model_comparison, bool):
-            raise ValueError("correlated_noise and model_comparison must be boolean")
+        if not isinstance(self.correlated_noise, bool) or not isinstance(self.model_comparison, bool) \
+                or not isinstance(self.single_events, bool):
+            raise ValueError("correlated_noise, model_comparison and single_events must be boolean")
         if not isinstance(self.extended_physics,bool) or not isinstance(self.ellipsoidal,bool):
             raise ValueError("extended_physics and ellipsoidal must be boolean")
         for name in ("stellar_mass_solar","stellar_logg","stellar_teff","stellar_tmag"):
@@ -122,8 +127,6 @@ class SearchConfig:
         if not (0 < self.planet_prior < 1 and 0 < self.binary_prior < 1
                 and self.planet_prior + self.binary_prior < 1):
             raise ValueError("Positive planet/binary prior masses must sum to less than one")
-        if self.peak_drift_durations < 0:
-            raise ValueError("peak_drift_durations must be nonnegative")
         if not 0 <= self.evidence_rtol < 1:
             raise ValueError("evidence_rtol must be in [0, 1)")
         if not (0 < self.target_flux_fraction <= 1 and self.planet_radius_scale_rj > 0
@@ -138,13 +141,15 @@ class SearchConfig:
             raise ValueError("Minimum duration must be below one quarter of period_min")
         if not ingress or any(not math.isfinite(x) or not 0 <= x < .5 for x in ingress):
             raise ValueError("Ingress fractions must be in [0, 0.5)")
-        if (self.threshold < 0 or self.bin_minutes < 0 or self.window_days <= 0 or
+        if (self.threshold < 0 or self.bin_minutes < 0 or self.window_days <= 0 or self.window_factor <= 0
+                or self.window_max_days < self.window_days or
                 self.clip_sigma <= 0 or self.period_oversample < 1 or self.max_fold_mib <= 0):
             raise ValueError("Invalid threshold, preparation window or resource budget")
         integers = ((self.noise_degree, 0, 4), (self.shape_layers, 1, None),
                     (self.eccentricity_nodes,0,16),(self.periastron_nodes,4,64),
                     (self.phase_oversample, 1, None), (self.max_candidates, 0, None),
-                    (self.candidate_capacity, 1, None))
+                    (self.candidate_capacity, 1, None), (self.passes, 1, None), (self.min_events, 1, None),
+                    (self.evidence_candidates, 0, None))
         for value, minimum, maximum in integers:
             if isinstance(value, bool) or not isinstance(value, int) or value < minimum or (maximum is not None and value > maximum):
                 raise ValueError("Invalid integer search parameter")
@@ -155,70 +160,40 @@ class SearchConfig:
 
 @dataclass
 class TransitSearchResult:
-    """GPU float64 period maxima for independent model and amplitude rankings."""
+    """GPU float64 period maxima plus resolved periodic peaks and single events."""
     table: torch.Tensor
     statistics: dict
     config: SearchConfig
+    peaks: list = field(default_factory=list)
+    single_events: list = field(default_factory=list)
 
     def candidates(self, limit=None, *, ranking="planet"):
-        """Prioritize model-preferred evidence peaks or independently select amplitude peaks."""
+        """Resolved periodic peaks: model-preferred evidence order, or amplitude order."""
         limit = self.config.max_candidates if limit is None else limit
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise ValueError("Candidate limit must be a nonnegative integer")
         if ranking not in ("planet", "signal"):
             raise ValueError("ranking must be 'planet' or 'signal'")
-        joint = ranking == "planet" and self.config.model_comparison
-        flag = 1 if joint else 2
-        eligible = (self.table[:, 13].long() & flag) != 0
-        if joint and self.config.peak_drift_durations and self.statistics.get("baseline_days") and len(self.table):
-            rows = torch.nonzero(eligible).flatten()
-            bank = self.table[rows].contiguous()
-            if len(bank):
-                baseline = self.statistics["baseline_days"]
-                maximum_duration = min(max(self.config.durations_hours) / 24, self.config.period_max / 4)
-                radius = self.config.peak_drift_durations * maximum_duration / baseline
-                count = self.statistics["periods_tested"]
-                step = math.log(self.config.period_max / self.config.period_min) / max(1, count - 1)
-                window = len(bank) - 1 if radius >= 1 else min(len(bank) - 1, math.ceil(-math.log1p(-radius) / step) + 2)
-                peaks = torch.empty(len(bank), device=self.table.device, dtype=torch.bool)
-                evidence_peaks[(len(bank),)](bank, peaks, len(bank), radius, window,
-                                             min(128, triton.next_power_of_2(2 * window + 1)),
-                                             num_warps=4, enable_fp_fusion=False)
-                eligible[rows] = peaks
-        preferred = eligible & (self.table[:, 5] >= self.config.planet_log_odds_min) if joint else eligible
-        remaining = torch.where(preferred, self.table[:, 6 if joint else 3], -torch.inf)
-        fallback = torch.where(eligible & ~preferred, self.table[:, 5], -torch.inf)
-        output = []
-        for _ in range(min(limit, len(self.table))):
-            i = int(remaining.argmax())
-            if not math.isfinite(float(remaining[i])):
-                if not joint or not bool(torch.isfinite(fallback).any()):
-                    break
-                remaining, fallback = fallback, torch.full_like(fallback, -torch.inf)
-                i = int(remaining.argmax())
-            row = [float(x) for x in self.table[i]]
-            p, epoch, duration, score, depth = row[:5]
-            candidate = {"period_days": p, "epoch_bjd": epoch, "duration_hours": 24 * duration,
-                         "snr": score, "depth": depth, "depth_ppm": 1e6 * depth}
-            if self.config.model_comparison:
-                candidate.update({name: value if math.isfinite(value) else None
-                                  for name, value in zip(TABLE_COLUMNS[5:], row[5:])})
-                candidate["model_preferred"] = row[5] >= self.config.planet_log_odds_min
-                candidate["binary_diagnostics_complete"] = all(math.isfinite(v) for v in row[8:12])
-            output.append(candidate)
-            phase = (self.table[:, 1] - epoch + p / 2).remainder(p) - p / 2
-            duplicate = ((self.table[:, 0] / p - 1).abs() <= .002) & (phase.abs() <= duration)
-            remaining[duplicate] = -torch.inf
-            fallback[duplicate] = -torch.inf
-            remaining[i] = -torch.inf
-        return output
+        rows = [dict(peak) for peak in self.peaks]
+        if ranking == "signal" or not self.config.model_comparison:
+            rows.sort(key=lambda r: -r["snr"])
+        else:
+            def key(r):
+                odds = r.get("planet_log_odds")
+                evidence = r.get("log_bf_planet_noise")
+                preferred = r.get("model_preferred", False)
+                return (0 if preferred else 1, -(evidence if preferred and evidence is not None else
+                                                 (odds if odds is not None else -math.inf)))
+            rows.sort(key=key)
+        return rows[:limit]
 
     def to_dict(self):
-        """Convert selected candidates and scalar metadata into a JSON-compatible mapping."""
+        """Convert resolved peaks, single events and scalar metadata into a JSON mapping."""
         from . import __version__
-        return {"schema_version": 2, "software_version": __version__, "config": asdict(self.config),
+        return {"schema_version": 3, "software_version": __version__, "config": asdict(self.config),
                 "statistics": self.statistics, "table_columns": TABLE_COLUMNS,
-                "candidates": self.candidates(), "signal_candidates": self.candidates(ranking="signal")}
+                "candidates": self.candidates(), "signal_candidates": self.candidates(ranking="signal"),
+                "single_events": self.single_events[:self.config.max_candidates]}
 
 
 def _input_vectors(time_values, flux_values, errors=None, sectors=None):
@@ -238,47 +213,292 @@ def _input_vectors(time_values, flux_values, errors=None, sectors=None):
     return t, flux, err, labels
 
 
-def _search(curve, config, preparation_seconds):
+def _comparison(config):
+    return {key: getattr(config, key) for key in ("planet_prior", "binary_prior",
+            "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
+            "stellar_radius_solar", "planet_radius_scale_rj", "target_flux_fraction", "evidence_rtol",
+            "extended_physics", "limb_darkening", "eccentricity_nodes", "periastron_nodes", "eccentricity_max",
+            "stellar_mass_solar", "stellar_logg", "stellar_teff", "stellar_tmag", "stellar_duration_scatter",
+            "ellipsoidal", "ellipsoidal_planet_scale", "ellipsoidal_binary_scale", "ellipsoidal_alpha",
+            "planet_mass_scale_mj", "centroid_planet_scale", "centroid_binary_scale")}
+
+
+def _overlap(mask_a, mask_b):
+    """Fraction of mask_a observations shared with mask_b."""
+    total = int(mask_a.sum())
+    return float((mask_a & mask_b).sum()) / total if total else 0.
+
+
+def _rescore(states, table, family, rows, time_all, excluded):
+    """Box-template amplitude statistics of selected rows with excluded observations removed.
+
+    Uses each family's precision-weighted fields and duration noise scale, so
+    a row explained by already accepted events loses its significance.
+    """
+    scores = torch.full((len(rows),), -torch.inf, device="cuda", dtype=torch.float64)
+    for k, state in enumerate(states):
+        local = torch.nonzero(family[rows] == k).flatten()
+        if not len(local):
+            continue
+        t = state.ready.time + state.ready.origin
+        position = torch.searchsorted(time_all, t).clamp_max(len(time_all) - 1)
+        keep = ~excluded[position]
+        v, p, w = state.ready.fields[0], state.ready.fields[1], state.ready.fields[2]
+        chunk = max(1, 2**24 // max(1, len(t)))
+        for begin in range(0, len(local), chunk):
+            part = local[begin:begin + chunk]
+            values = table[rows[part]]
+            phase = (t[None, :] - values[:, 1:2] + values[:, 0:1] / 2).remainder(values[:, 0:1]) - values[:, 0:1] / 2
+            inside = (phase.abs() <= values[:, 2:3] / 2) & keep[None, :]
+            weight = inside.double()
+            a, hp, norm = weight @ v, weight @ p, weight @ w
+            index = (values[:, 2:3] - state.durations[None, :]).abs().argmin(1)
+            rho = state.rho[index]
+            q = norm - hp.square() / state.ready.baseline_norm
+            scores[part] = torch.where((q > 0) & (a > 0), (a / rho) / q.clamp_min(1e-300).sqrt(), -torch.inf)
+    return scores
+
+
+def _without_strongest_event(state, row, time_all, excluded):
+    """Box statistic of one ephemeris after removing its strongest individual event.
+
+    An isolated event folded with an arbitrary long period reaches the amplitude
+    threshold on its own; a periodic signal keeps most of its significance when
+    one event is removed. Returns (statistic, event_count_with_data).
+    """
+    period, epoch, duration = [float(x) for x in row[:3]]
+    t = state.ready.time + state.ready.origin
+    position = torch.searchsorted(time_all, t).clamp_max(len(time_all) - 1)
+    keep = ~excluded[position]
+    inside = transit_mask(t, period, epoch, duration, margin=0.) & keep
+    if not bool(inside.any()):
+        return -math.inf, 0
+    cycles = ((t - epoch) / period).round().long()
+    labels, inverse = torch.unique(cycles[inside], return_inverse=True)
+    v, p, w = state.ready.fields[0], state.ready.fields[1], state.ready.fields[2]
+    sums = torch.zeros((3, len(labels)), device="cuda", dtype=torch.float64)
+    for k, values in enumerate((v, p, w)):
+        sums[k].scatter_add_(0, inverse, values[inside])
+    rho = state.rho[(state.durations - duration).abs().argmin()]
+    q = (sums[2] - sums[1].square() / state.ready.baseline_norm).clamp_min(1e-300)
+    individual = sums[0] / rho / q.sqrt()
+    strongest = labels[individual.argmax()]
+    rest = inside & (cycles != strongest)
+    a, hp, norm = v[rest].sum(), p[rest].sum(), w[rest].sum()
+    q = norm - hp.square() / state.ready.baseline_norm
+    value = float(a / rho / q.clamp_min(1e-300).sqrt()) if float(q) > 0 and float(a) > 0 else -math.inf
+    return value, len(labels)
+
+
+def _select_peaks(table, time_all, family, states, threshold, limit, min_events, taken, excluded, margin=.5,
+                  block=1024, max_iterations=20000):
+    """Greedy peak selection with event-overlap rescoring over the five-column table.
+
+    A row is accepted when at least `min_events` transit epochs hold three or
+    more observations, fewer than half of its in-transit observations are
+    shared with accepted ephemerides, its amplitude statistic without the
+    observations of accepted ephemerides still reaches the threshold, and the
+    statistic without its strongest single event keeps at least half of the
+    threshold (with `min_events` above one). After each acceptance the
+    strongest remaining rows are rescored the same way.
+    """
+    accepted, masks = [], list(taken)
+    excluded = excluded.clone()
+    if not len(table):
+        return accepted, masks, excluded
+    remaining = table[:, 3].clone()
+    remaining[~torch.isfinite(remaining) | (remaining < threshold)] = -torch.inf
+    fresh = torch.full((len(table),), not bool(excluded.any()), device="cuda", dtype=torch.bool)
+
+    def refresh():
+        order = torch.argsort(remaining, descending=True)[:block]
+        order = order[torch.isfinite(remaining[order]) & ~fresh[order]]
+        if len(order):
+            rescored = _rescore(states, table, family, order, time_all, excluded)
+            remaining[order] = torch.where(rescored >= threshold, rescored, -torch.inf)
+            fresh[order] = True
+
+    iterations = 0
+    while len(accepted) < limit and iterations < max_iterations:
+        iterations += 1
+        i = int(remaining.argmax())
+        if not math.isfinite(float(remaining[i])):
+            break
+        if not bool(fresh[i]):
+            refresh()
+            continue
+        isolated = float(remaining[i])
+        remaining[i] = -torch.inf
+        p, epoch, duration, score, depth = [float(x) for x in table[i, :5]]
+        mask = transit_mask(time_all, p, epoch, duration, margin=0.)
+        if any(_overlap(mask, other) >= .5 for other in masks):
+            continue
+        events = event_count(time_all, p, epoch, duration)
+        if events < min_events:
+            continue
+        leftover, _ = _without_strongest_event(states[int(family[i])], table[i], time_all, excluded)
+        if min_events > 1 and leftover < .5 * threshold:
+            continue
+        wide = transit_mask(time_all, p, epoch, duration, margin)
+        masks.append(wide)
+        excluded |= wide
+        accepted.append({"period_days": p, "epoch_bjd": epoch, "duration_hours": 24 * duration,
+                         "snr": isolated, "snr_folded": score, "snr_without_strongest_event": leftover,
+                         "depth": depth, "depth_ppm": 1e6 * depth,
+                         "events": events, "family": int(family[i]), "row": i})
+        fresh[:] = False
+        refresh()
+    return accepted, masks, excluded
+
+
+def _select_events(table, time, threshold, limit, taken, max_iterations=5000):
+    """Greedy suppression of single-event templates overlapping accepted ephemerides."""
+    output, masks = [], list(taken)
+    if not len(table):
+        return output
+    remaining = table[:, 3].clone()
+    remaining[~torch.isfinite(remaining) | (remaining < threshold)] = -torch.inf
+    iterations = 0
+    while len(output) < limit and iterations < max_iterations:
+        iterations += 1
+        i = int(remaining.argmax())
+        if not math.isfinite(float(remaining[i])):
+            break
+        epoch, duration, score, depth = [float(x) for x in table[i, 1:5]]
+        inside = (time - epoch).abs() <= duration / 2
+        remaining[(table[:, 1] - epoch).abs() <= (table[:, 2] + duration) / 2] = -torch.inf
+        if int(inside.sum()) < 3 or any(_overlap(inside, other) >= .5 for other in masks):
+            continue
+        masks.append((time - epoch).abs() <= .75 * duration)
+        output.append({"epoch_bjd": epoch, "duration_hours": 24 * duration, "snr": score,
+                       "depth": depth, "depth_ppm": 1e6 * depth, "points": int(inside.sum())})
+    return output
+
+
+def _search(families, config, preparation_seconds, time_all):
+    """Multi-pass family search: signal scan, event-overlap peaks, masking, evidence."""
     torch.cuda.synchronize()
     start = time.perf_counter()
-    if len(curve.time) < 6:
+    if len(time_all) < 6:
         raise ValueError("At least six usable observations are required")
-    baseline = float(curve.time[-1] - curve.time[0])
+    baseline = float(time_all[-1] - time_all[0])
     if not math.isfinite(baseline) or baseline <= 0:
         raise ValueError("Observations must span a positive finite time interval")
     durations = gpu64(config.durations_hours) / 24
-    periods = period_grid(config.period_min, config.period_max, baseline,
-                          float(durations.min()), config.period_oversample)
-    table, details = search_curve(curve, periods, durations, threshold=config.threshold,
-        noise_degree=config.noise_degree, correlated_noise=config.correlated_noise,
-        ingress_fractions=config.ingress_fractions, shape_layers=config.shape_layers,
-        phase_oversample=config.phase_oversample, period_batch=config.period_batch,
-        candidate_capacity=config.candidate_capacity, max_fold_mib=config.max_fold_mib,
-        comparison={key: getattr(config, key) for key in ("planet_prior", "binary_prior",
-            "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
-            "stellar_radius_solar", "planet_radius_scale_rj", "target_flux_fraction", "evidence_rtol",
-            "extended_physics","limb_darkening","eccentricity_nodes","periastron_nodes","eccentricity_max",
-            "stellar_mass_solar","stellar_logg","stellar_teff","stellar_tmag","stellar_duration_scatter",
-            "ellipsoidal","ellipsoidal_planet_scale","ellipsoidal_binary_scale","ellipsoidal_alpha",
-            "planet_mass_scale_mj","centroid_planet_scale","centroid_binary_scale")} if config.model_comparison else None)
-    if not config.model_comparison:
-        extra = torch.zeros((len(table), 9), device="cuda", dtype=torch.float64)
-        extra[:, -1] = 2.
-        table = torch.cat((table, extra), dim=1)
+    options = dict(ingress_fractions=config.ingress_fractions, shape_layers=config.shape_layers,
+                   phase_oversample=config.phase_oversample, period_batch=config.period_batch,
+                   candidate_capacity=config.candidate_capacity, max_fold_mib=config.max_fold_mib)
+    states = [family_state(curve, durations[indices], indices, config.noise_degree, config.correlated_noise)
+              for curve, indices in families]
+    peaks, masks, pass_stats, first_table, periods_tested = [], [], [], None, 0
+    excluded = torch.zeros(len(time_all), device="cuda", dtype=torch.bool)
+    for pass_index in range(config.passes):
+        tables, labels, band_stats = [], [], []
+        for k, state in enumerate(states):
+            table, grid, stats = signal_search(state, config.period_min, config.period_max, config.threshold,
+                                               period_oversample=config.period_oversample, **options)
+            tables.append(table)
+            labels.append(torch.full((len(table),), k, device="cuda", dtype=torch.int64))
+            band_stats.append({"family": k, "window_days": state.curve.provenance.get("window_days"),
+                               "durations_hours": (24 * state.durations).tolist(), "periods": len(grid),
+                               "rho": state.rho.tolist(), "bands": stats})
+            if pass_index == 0:
+                periods_tested += len(grid)
+        table = torch.cat(tables) if tables else torch.empty((0, 5), device="cuda", dtype=torch.float64)
+        family = torch.cat(labels) if labels else torch.empty(0, device="cuda", dtype=torch.int64)
+        if pass_index == 0:
+            first_table = table
+        found, masks, excluded = _select_peaks(table, time_all, family, states, config.threshold,
+                                               config.max_candidates - len(peaks), config.min_events, masks, excluded)
+        for peak in found:
+            peak["pass"] = pass_index + 1
+        pass_stats.append({"pass": pass_index + 1, "rows": len(table), "accepted": len(found),
+                           "families": band_stats})
+        if not found:
+            break
+        peaks.extend(found)
+        if pass_index + 1 < config.passes:
+            lead = found[0]
+            states = [family_state(mask_curve(s.curve, lead["period_days"], lead["epoch_bjd"],
+                                              lead["duration_hours"] / 24),
+                                   s.durations, s.duration_indices, config.noise_degree, config.correlated_noise)
+                      for s in states]
+            if any(len(s.curve.time) < 6 for s in states):
+                break
+    if first_table is None:
+        first_table = torch.empty((0, 5), device="cuda", dtype=torch.float64)
+    full = torch.full((len(first_table), 14), torch.nan, device="cuda", dtype=torch.float64)
+    full[:, :5] = first_table
+    full[:, 13] = 2.
+    evidence_stats = {}
+    if config.model_comparison and peaks:
+        comparison = _comparison(config)
+        chosen = sorted(peaks, key=lambda r: -r["snr"])[:config.evidence_candidates]
+        evidence_seconds = 0.
+        for peak in chosen:
+            # Other accepted ephemerides are removed so the evidence describes this signal alone.
+            curve, indices = families[peak["family"]]
+            for other in peaks:
+                if other is not peak:
+                    curve = mask_curve(curve, other["period_days"], other["epoch_bjd"], other["duration_hours"] / 24)
+            if len(curve.time) < 6:
+                continue
+            state = family_state(curve, durations[indices], indices, config.noise_degree, config.correlated_noise)
+            rows, stats = evidence_at(state, [peak["period_days"]], comparison, threshold=config.threshold, **options)
+            evidence_seconds += stats.get("seconds_search", 0.)
+            evidence_stats = {key: value for key, value in stats.items()
+                              if key not in ("seconds_search", "periods", "batches")}
+            hit = (rows[:, 0] == peak["period_days"]) & ((rows[:, 13].long() & 1) != 0)
+            if not bool(hit.any()):
+                hit = rows[:, 0] == peak["period_days"]
+            if not bool(hit.any()):
+                continue
+            row = [float(x) for x in rows[torch.nonzero(hit).flatten()[0]]]
+            peak.update({name: value if math.isfinite(value) else None
+                         for name, value in zip(TABLE_COLUMNS[5:13], row[5:13])})
+            peak["evidence_epoch_bjd"], peak["evidence_duration_hours"] = row[1], 24 * row[2]
+            peak["model_preferred"] = row[5] >= config.planet_log_odds_min
+            peak["binary_diagnostics_complete"] = all(math.isfinite(v) for v in row[8:12])
+            if peak["pass"] == 1 and peak["row"] < len(full):
+                full[peak["row"], 5:13] = torch.tensor(row[5:13], device="cuda", dtype=torch.float64)
+                full[peak["row"], 13] = 3.
+        evidence_stats["seconds_search"] = evidence_seconds
+    for peak in peaks:
+        if config.model_comparison and "planet_log_odds" not in peak:
+            peak.update({name: None for name in TABLE_COLUMNS[5:13]})
+            peak["model_preferred"] = False
+            peak["binary_diagnostics_complete"] = False
+        peak.pop("row", None)
+    events, event_stats = [], {}
+    if config.single_events:
+        for k, state in enumerate(states):
+            table, stats = single_event_search(state, config.threshold, config.candidate_capacity,
+                                               **{key: value for key, value in options.items()
+                                                  if key not in ("period_batch", "candidate_capacity")})
+            event_stats[k] = {key: value for key, value in stats.items() if key in ("templates_scanned", "threshold_survivors", "overflow")}
+            events.extend(_select_events(table, time_all, config.threshold, config.max_candidates, masks))
+        events.sort(key=lambda r: -r["snr"])
+        events = _select_events(gpu64([[math.inf, e["epoch_bjd"], e["duration_hours"] / 24, e["snr"], e["depth"]]
+                                       for e in events]) if events else torch.empty((0, 5), device="cuda", dtype=torch.float64),
+                                time_all, config.threshold, config.max_candidates, masks)
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - start
-    stats = {"device": torch.cuda.get_device_name(curve.time.device), "dtype": "float64",
-             "observations": len(curve.time), "baseline_days": baseline,
-             "periods_tested": len(periods), "qualifying_periods": len(torch.unique(table[:, 0])),
-             "retained_ephemerides": len(table),
+    stats = {"device": torch.cuda.get_device_name(time_all.device), "dtype": "float64",
+             "observations": len(time_all), "baseline_days": baseline,
+             "periodic_period_max_days": min(config.period_max, baseline),
+             "periods_tested": periods_tested, "qualifying_periods": int(torch.isfinite(full[:, 3]).sum()),
+             "retained_ephemerides": len(full), "resolved_peaks": len(peaks), "single_events": len(events),
              "seconds_preparation": preparation_seconds, "seconds_search": elapsed,
              "seconds_total": preparation_seconds + elapsed,
-             "preparation": curve.provenance, **details}
-    return TransitSearchResult(table, stats, config)
+             "families": [{"family": k, "window_days": curve.provenance.get("window_days"),
+                           "durations_hours": [config.durations_hours[i] for i in indices],
+                           "preparation": curve.provenance} for k, (curve, indices) in enumerate(families)],
+             "passes": pass_stats, "evidence": evidence_stats, "single_event_scan": event_stats}
+    return TransitSearchResult(full, stats, config, peaks, events)
 
 
 def search_transits(time_bjd, flux, flux_err=None, sector=None, *, config=None, centroid=None, centroid_err=None):
-    """Normalize and detrend positive mission flux, then search on CUDA in float64."""
+    """Normalize, bin and detrend positive mission flux per duration family, then search on CUDA."""
     config = SearchConfig() if config is None else config
     if not isinstance(config, SearchConfig):
         raise TypeError("config must be a SearchConfig")
@@ -287,15 +507,18 @@ def search_transits(time_bjd, flux, flux_err=None, sector=None, *, config=None, 
     torch.cuda.synchronize()
     start = time.perf_counter()
     t, f, error, labels = _input_vectors(time_bjd, flux, flux_err, sector)
-    centers, center_error = _centroid_vectors(centroid,centroid_err,len(t))
-    curve = prepare_curve(t, f, error, labels, bin_minutes=config.bin_minutes,
-                          window=config.window_days, clip_sigma=config.clip_sigma,centroid=centers,centroid_err=center_error)
+    centers, center_error = _centroid_vectors(centroid, centroid_err, len(t))
+    families = prepare_families(t, f, error, labels, gpu64(config.durations_hours) / 24, bin_minutes=config.bin_minutes,
+                                window_min=config.window_days, window_factor=config.window_factor,
+                                window_max=config.window_max_days, clip_sigma=config.clip_sigma,
+                                centroid=centers, centroid_err=center_error)
     torch.cuda.synchronize()
-    return _search(curve, config, time.perf_counter() - start)
+    time_all = torch.unique(torch.cat([curve.time for curve, _ in families]))
+    return _search(families, config, time.perf_counter() - start, time_all)
 
 
 def search_prepared(time_bjd, relative_flux, flux_err, *, config=None, centroid=None, centroid_err=None, sector=None):
-    """Search detrended fractional flux with baseline zero and absolute-BJD times."""
+    """Search detrended fractional flux with baseline zero and absolute-BJD times as one family."""
     config = SearchConfig() if config is None else config
     if not isinstance(config, SearchConfig):
         raise TypeError("config must be a SearchConfig")
@@ -305,17 +528,17 @@ def search_prepared(time_bjd, relative_flux, flux_err, *, config=None, centroid=
         raise RuntimeError("A CUDA-capable GPU is required")
     torch.cuda.synchronize()
     start = time.perf_counter()
-    t, f, error, labels = _input_vectors(time_bjd, relative_flux, flux_err,sector)
-    centers, center_error = _centroid_vectors(centroid,centroid_err,len(t))
+    t, f, error, labels = _input_vectors(time_bjd, relative_flux, flux_err, sector)
+    centers, center_error = _centroid_vectors(centroid, centroid_err, len(t))
     keep = torch.isfinite(t) & torch.isfinite(f) & torch.isfinite(error) & (error > 0)
     t, f, error = t[keep], f[keep], error[keep]
     order = t.argsort(stable=True)
-    astrometry=prepare_astrometry(t[order],centers[keep][order],center_error[keep][order] if center_error is not None else None,
-        labels[keep][order] if labels is not None else None) if centers is not None else None
+    astrometry = prepare_astrometry(t[order], centers[keep][order], center_error[keep][order] if center_error is not None else None,
+                                    labels[keep][order] if labels is not None else None) if centers is not None else None
     curve = PreparedCurve(t[order], f[order], error[order],
-                          {"input_mode": "prepared", "observations": len(t)},astrometry)
+                          {"input_mode": "prepared", "observations": len(t), "window_days": None}, astrometry)
     torch.cuda.synchronize()
-    return _search(curve, config, time.perf_counter() - start)
+    return _search([(curve, list(range(len(config.durations_hours))))], config, time.perf_counter() - start, curve.time)
 
 
 def _centroid_vectors(values, errors, count):

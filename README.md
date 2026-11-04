@@ -51,6 +51,25 @@ Raw preparation performs median normalization within each sector, weighted
 time binning, robust detrending and positive-outlier clipping. Negative dips
 are retained. Nonfinite observations and nonpositive errors are removed.
 
+Detrending is organized in duration families. Each configured duration `D`
+receives a biweight window `clamp(window_factor * D, window_days, window_max_days)`
+(defaults 3, 0.4 and 3.5 days); durations sharing a window form one family with
+its own detrended residual, duration noise scales and period grid. The grid
+resolution follows the family's shortest duration, so long-duration templates
+are never scanned on the finest phase grid. Periodic peaks are searched from
+`period_min` to `min(period_max, baseline)`; longer periods cannot show two
+events and are covered by the unfolded single-event scan.
+
+Duration-dependent noise estimates require at least 20 sufficiently populated
+time bins. Sparse durations inherit the nearest supported noise scale, increased
+by the square root of the duration ratio when extrapolating to longer durations
+and floored by their own measured scatter. With no supported duration, the
+reference is the unbinned standardized residual scatter under a coherent-noise
+assumption. This fallback is a conservative working model, not a confidence
+bound. `correlated_noise_estimation` reports bin counts, direct-estimate flags
+and reference durations; sparse sampling never automatically resets the scale
+to unit white noise.
+
 Multiple files can be passed after `--input`. Each file/sector pair is
 normalized independently. Error arrays must be present in all files or absent
 from all files. Time sorting is performed on the GPU after concatenation.
@@ -67,59 +86,69 @@ from tess_search import SearchConfig, search_transits
 
 config = SearchConfig(
     period_min=0.5,
-    period_max=10.0,
+    period_max=100.0,
     durations_hours=(0.5, 1.0, 2.0, 4.0),
     threshold=7.1,
     max_candidates=10,
+    passes=3,
 )
 result = search_transits(time_bjd, flux, flux_err, sector, config=config,
                          centroid=centroid_pixels, centroid_err=centroid_errors)
 peaks = result.candidates()
 signal_peaks = result.candidates(ranking="signal")
+events = result.single_events
 gpu_table = result.table
 json_mapping = result.to_dict()
 ```
+
+The search runs in passes. Each pass scans every family, then resolves peaks
+greedily from the per-period maxima: a row is accepted when at least
+`min_events` transit epochs hold three or more observations, fewer than half
+of its in-transit observations are shared with accepted ephemerides, and its
+box-template amplitude statistic recomputed without the observations of
+accepted ephemerides still reaches the threshold, and its statistic without
+its strongest single event keeps at least half of the threshold. The last rule
+rejects isolated events folded with an arbitrary long period. Remaining rows
+are rescored the same way, which removes period aliases and harmonics of
+accepted signals without masking. After a pass, all accepted ephemerides are masked (1.5
+durations) in every family and the next pass searches the residual data; this
+exposes signals whose period cells were occupied by a stronger signal. Up to
+`passes` passes run; a pass without an accepted peak ends the loop. Peaks report
+`snr` (isolated statistic), `snr_folded` (original per-period maximum),
+`snr_without_strongest_event`, `events` (sampled epochs) and `pass`. Model evidence is evaluated only for the
+`evidence_candidates` strongest peaks, each with the other accepted
+ephemerides masked, so one peak's evidence describes that signal alone.
+
+With `single_events=True` a final scan folds each family at one trial period
+longer than the baseline. Templates above threshold that do not coincide with
+accepted periodic ephemerides are reported in `single_events` with epoch,
+duration, depth and point count; their period is unconstrained.
 
 Input arrays may be NumPy arrays, numeric sequences or CUDA tensors. The output
 table remains on the GPU. Conversion to Python occurs when candidates or JSON
 are requested. Call `search_prepared(time_bjd, relative_flux, flux_err,
 config=config)` to consume an existing photometric preparation stage.
 
-The first five float64 table columns are `period_days`, `epoch_bjd`, `duration_days`,
-`snr`, and `depth`. The remaining columns are `planet_log_odds`,
-`log_bf_planet_noise`, `log_bf_binary_noise`, `binary_secondary_ratio`,
-`binary_secondary_phase`, `binary_odd_even_ratio`, `binary_period_days`,
-`ingress_fraction`, and `selection_flags`. Depth is fractional relative flux.
-JSON peak durations are in hours and include `depth_ppm`.
+The table holds the first-pass per-period maxima of every family. The first
+five float64 columns are `period_days`, `epoch_bjd`, `duration_days`, `snr`, and
+`depth`. The remaining columns are `planet_log_odds`, `log_bf_planet_noise`,
+`log_bf_binary_noise`, `binary_secondary_ratio`, `binary_secondary_phase`,
+`binary_odd_even_ratio`, `binary_period_days`, `ingress_fraction`, and
+`selection_flags`; they are NaN except for rows that received evidence
+(`selection_flags` 3). Depth is fractional relative flux. JSON peak durations
+are in hours and include `depth_ppm`.
 
-Each qualifying period retains its planetary MAP ephemeris and its primary-amplitude
-maximum, before peak suppression. Identical maxima share a row. Selection flags
-are 1 for the planetary MAP ephemeris, 2 for the amplitude maximum, and 3 for both.
-The JSON schema is version 2: `candidates` first selects resolved peaks with
-`planet_log_odds >= planet_log_odds_min` and orders them by planet/noise evidence.
-The default boundary is zero. Remaining alternatives follow, ordered by model
-odds; they are not hard-rejected. `model_preferred` records this decision.
-Separating model preference from detection strength prevents saturated class
-odds from promoting a weak period above a strongly detected planet.
-`signal_candidates` independently ranks amplitude maxima. Each list has its own
-`max_candidates` budget. All retained rows are available through `table` or
-`--save-table`; neither capped peak list guarantees complete candidate retention.
+The JSON schema is version 3: `candidates` lists resolved peaks with
+`planet_log_odds >= planet_log_odds_min` first, ordered by planet/noise
+evidence, followed by the remaining peaks ordered by model odds; `model_preferred`
+records this decision. `signal_candidates` lists the same peaks ordered by the
+isolated amplitude statistic. `single_events` follows. Each list is capped by
+`max_candidates`.
 
 The default duration bank contains 13 widths from 0.5 to approximately 7.28 hours.
 Shapes use ingress fractions 0, 0.2 and 0.45 with four nested layers. In extended
 mode, quadratic limb-darkened disk profiles use weighted nested intervals. The period grid
 obeys `baseline * (P_next / P - 1) <= min_duration / period_oversample`.
-Peak reporting suppresses periods within relative tolerance 0.002 and epochs
-within one selected transit duration. It does not mask observations or rerun
-the search after reporting a peak.
-Before model-odds ranking, planetary ephemerides must be local maxima of planet
-evidence within a drift neighborhood. By default the relative period radius is
-twice the maximum configured usable duration divided by the observing baseline;
-only ephemerides separated by at most their summed durations in phase compete.
-This reports the fitted period of a resolved peak. Set `peak_drift_durations=0`
-or `--peak-drift-durations 0` to disable this grouping. Closely spaced signals
-remain in the full table even when peak reporting merges their ephemerides.
-
 `noise_degree=0` uses diagonal precision. Degrees 1–4 fit localized polynomial
 covariance modes. The comparison kernel folds precision-weighted sufficient
 statistics and covariance-mode projections over twice each trial period.
@@ -330,6 +359,3 @@ The covariance is `sqrt(D) @ (I + U @ diag(eigenvalues) @ U.T) @ sqrt(D)`.
 With `reduce="all"`, the result retains all templates reaching the threshold.
 Candidate-buffer overflow reduces the period batch and retries the same bank;
 overflow for a single period raises an error without truncating output.
-
-No catalogs, mission-cache layout, stellar tables or external service calls
-are required. All runtime modules and the CLI are included in this directory.

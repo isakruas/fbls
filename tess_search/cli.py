@@ -104,7 +104,13 @@ def main(argv=None):
     parser.add_argument("--threshold", type=float, default=7.1)
     parser.add_argument("--limit", type=int, default=20, help="Maximum number of reported peaks")
     parser.add_argument("--bin-minutes", type=float, default=10., help="Raw-input bin width; zero preserves cadence")
-    parser.add_argument("--window-days", type=float, default=.75, help="Raw-input detrending window")
+    parser.add_argument("--window-days", type=float, default=.4, help="Minimum raw-input detrending window")
+    parser.add_argument("--window-factor", type=float, default=3., help="Detrending window per family in transit durations")
+    parser.add_argument("--window-max-days", type=float, default=3.5, help="Maximum raw-input detrending window")
+    parser.add_argument("--passes", type=int, default=3, help="Search passes; each pass masks the previous leading peak")
+    parser.add_argument("--min-events", type=int, default=2, help="Minimum sampled transit epochs for a periodic peak")
+    parser.add_argument("--evidence-candidates", type=int, default=32, help="Resolved peaks receiving model evidence")
+    parser.add_argument("--no-single-events", action="store_true", help="Skip the unfolded single-event scan")
     parser.add_argument("--clip-sigma", type=float, default=4., help="Raw-input positive-outlier cutoff")
     parser.add_argument("--noise-degree", type=int, default=0, choices=range(5))
     parser.add_argument("--no-red-noise", action="store_true", help="Use unit duration-dependent noise scales")
@@ -124,7 +130,6 @@ def main(argv=None):
     parser.add_argument("--stellar-radius-solar", type=float, help="Condition the planet depth scale on stellar radius")
     parser.add_argument("--planet-radius-scale-rj", type=float, default=1.)
     parser.add_argument("--target-flux-fraction", type=float, default=1., help="Target fraction of the supplied flux before correction")
-    parser.add_argument("--peak-drift-durations", type=float, default=2., help="Evidence-peak resolution in transit-duration drift units; zero disables grouping")
     parser.add_argument("--evidence-rtol", type=float, default=1e-12, help="Relative evidence omission budget; zero evaluates every component")
     parser.add_argument("--planet-log-odds-min", type=float, default=0., help="Model-odds boundary for the preferred planet list")
     physics=parser.add_mutually_exclusive_group()
@@ -151,7 +156,9 @@ def main(argv=None):
             raise ValueError("JSON and table outputs require different paths")
         config = SearchConfig(period_min=args.pmin, period_max=args.pmax,
             durations_hours=args.durations_hours, threshold=args.threshold, max_candidates=args.limit,
-            bin_minutes=args.bin_minutes, window_days=args.window_days, clip_sigma=args.clip_sigma,
+            bin_minutes=args.bin_minutes, window_days=args.window_days, window_factor=args.window_factor,
+            window_max_days=args.window_max_days, passes=args.passes, min_events=args.min_events,
+            evidence_candidates=args.evidence_candidates, single_events=not args.no_single_events, clip_sigma=args.clip_sigma,
             noise_degree=args.noise_degree, correlated_noise=not args.no_red_noise,
             ingress_fractions=args.ingress_fractions, shape_layers=args.shape_layers,
             phase_oversample=args.phase_oversample, period_oversample=args.period_oversample,
@@ -160,7 +167,7 @@ def main(argv=None):
             binary_prior=args.binary_prior, planet_depth_scale=args.planet_depth_scale,
             binary_depth_scale=args.binary_depth_scale, diluted_binary_depth_scale=args.diluted_binary_depth_scale,
             stellar_radius_solar=args.stellar_radius_solar, planet_radius_scale_rj=args.planet_radius_scale_rj,
-            target_flux_fraction=args.target_flux_fraction, peak_drift_durations=args.peak_drift_durations,
+            target_flux_fraction=args.target_flux_fraction,
             evidence_rtol=args.evidence_rtol, planet_log_odds_min=args.planet_log_odds_min,
             extended_physics=args.extended_physics,ellipsoidal=not args.no_ellipsoidal,
             limb_darkening=args.limb_darkening,eccentricity_nodes=args.eccentricity_nodes,

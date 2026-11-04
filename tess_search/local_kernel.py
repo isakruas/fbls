@@ -7,7 +7,7 @@ from .kernels import lower_cell
 
 @triton.jit
 def refine_local_modes(T, Prefix, Beta, Support, Records, Score, Depth, Used, Status, Floor,
-                       N: tl.constexpr, NB: tl.constexpr, R: tl.constexpr,
+                       N, NB, R: tl.constexpr,
                        THRESHOLD: tl.constexpr, ADAPTIVE: tl.constexpr,
                        LAYERS: tl.constexpr, GUARD: tl.constexpr,
                        STEPS: tl.constexpr, CYCLES: tl.constexpr,
