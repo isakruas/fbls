@@ -12,7 +12,7 @@ import triton
 
 from .kernels import fold_fields, scan_bounds, scan_floor, refine_modes
 from .local_kernel import refine_local_modes
-from .period_kernel import diagonal_tiles, diagonal_merge, fold_comparison, comparison_screen, joint_tiles, joint_merge
+from .period_kernel import diagonal_tiles, diagonal_merge, fold_comparison, fold_period_fields, comparison_screen, joint_tiles, joint_merge
 
 
 def gpu64(value):
@@ -30,6 +30,7 @@ class NoiseModel:
     eigenvalues: torch.Tensor
     origin: float = 0.
     provenance: dict = field(default_factory=dict)
+    ancillary: dict | None = None
 
     def prepare(self):
         """Precision applications once per star; mode sums once per model."""
@@ -167,7 +168,7 @@ def period_grid(minimum, maximum, baseline, minimum_duration, oversample=3.):
 
 
 def fit_segment_noise(time_values, flux_values, errors=None, sectors=None,
-                      bin_minutes=10., degree=2, gap_days=0.75):
+                      bin_minutes=10., degree=2, gap_days=0.75, centroid=None, centroid_err=None):
     """Mission-flux preparation and empirical low-rank noise model on GPU.
 
     Normalize each sector by its median; never clip negative dips. Smooth
@@ -181,9 +182,18 @@ def fit_segment_noise(time_values, flux_values, errors=None, sectors=None,
     err = gpu64(errors) if errors is not None else torch.ones_like(flux)
     sec = torch.as_tensor(sectors, device="cuda", dtype=torch.int64) if sectors is not None else torch.zeros_like(t, dtype=torch.int64)
     keep = torch.isfinite(t) & torch.isfinite(flux) & torch.isfinite(err) & (err > 0)
+    centers = gpu64(centroid) if centroid is not None else None
+    center_err = gpu64(centroid_err) if centroid_err is not None else None
+    if centers is not None and centers.shape!=(len(t),2):
+        raise ValueError("Centroids must have shape (observations, 2)")
+    if center_err is not None and (centers is None or center_err.shape!=centers.shape):
+        raise ValueError("Centroid errors must match centroid coordinates")
+    centers=centers[keep] if centers is not None else None
+    center_err=center_err[keep] if center_err is not None else None
     t, flux, err, sec = t[keep], flux[keep], err[keep], sec[keep]
-    order = t.argsort()
+    order = t.argsort(stable=True)
     t, flux, err, sec = t[order], flux[order], err[order], sec[order]
+    astrometry = prepare_astrometry(t, centers[order], center_err[order] if center_err is not None else None, sec) if centers is not None else None
     if len(t) < 6:
         raise ValueError("Insufficient usable observations")
     for label in torch.unique(sec):
@@ -205,8 +215,15 @@ def fit_segment_noise(time_values, flux_values, errors=None, sectors=None,
         def mean(x):
             return torch.zeros_like(denominator).scatter_add_(0, inv, x * w) / denominator
         t, flux, err, sec = mean(t), mean(flux), denominator.rsqrt(), unique[:, 1]
-        order = t.argsort()
+        if astrometry is not None:
+            weights = torch.where(torch.isfinite(astrometry["variance"]), astrometry["variance"].reciprocal(), 0.)
+            den = torch.zeros((len(unique), 2), device="cuda", dtype=torch.float64).scatter_add_(0, inv[:, None].expand(-1, 2), weights)
+            num = torch.zeros_like(den).scatter_add_(0, inv[:, None].expand(-1, 2), weights * astrometry["value"])
+            astrometry = {"value": num / den.clamp_min(1e-300), "variance": torch.where(den > 0, den.reciprocal(), torch.inf), "group": sec}
+        order = t.argsort(stable=True)
         t, flux, err, sec = t[order], flux[order], err[order], sec[order]
+        if astrometry is not None:
+            astrometry = {key: value[order] for key, value in astrometry.items()}
     delta = flux[1:] - flux[:-1]
     adjacent = (t[1:] - t[:-1] < gap_days) & (sec[1:] == sec[:-1])
     if not bool(adjacent.any()):
@@ -243,7 +260,7 @@ def fit_segment_noise(time_values, flux_values, errors=None, sectors=None,
                        "bin_minutes": bin_minutes, "polynomial_degree": degree,
                        "segments": len(bounds) - 1, "rank": len(lam),
                        "error_inflation": float(inflation),
-                       "covariance_estimator": "positive empirical modal power minus white variance"})
+                       "covariance_estimator": "positive empirical modal power minus white variance"}, astrometry)
 
 
 def biweight_flatten(time, relative_flux, window=.75, gap=.5, c=5., iterations=10):
@@ -312,24 +329,254 @@ class PreparedCurve:
     flux: torch.Tensor  # detrended relative flux (transit = negative)
     sigma: torch.Tensor  # white-noise errors after robust inflation
     provenance: dict
+    astrometry: dict | None = None
+
+
+def prepare_astrometry(t, values, errors=None, groups=None):
+    """Retain missing astrometry with zero precision; estimate absent errors by segment MAD."""
+    c = gpu64(values)
+    if c.shape != (len(t), 2):
+        raise ValueError("Centroids must have shape (observations, 2), in pixels")
+    error = gpu64(errors) if errors is not None else torch.full_like(c, torch.nan)
+    if error.shape != c.shape:
+        raise ValueError("Centroid errors must match centroid coordinates")
+    labels = torch.zeros(len(t), device="cuda", dtype=torch.int64) if groups is None else groups.long()
+    valid = torch.isfinite(c)
+    for label in torch.unique(labels):
+        group = labels == label
+        for axis in range(2):
+            ids = torch.nonzero(group & valid[:, axis]).flatten()
+            if len(ids) < 3:
+                valid[ids, axis] = False
+                continue
+            delta = c[ids[1:], axis] - c[ids[:-1], axis]
+            adjacent = (t[ids[1:]] - t[ids[:-1]]) < .75
+            delta = delta[adjacent]
+            if len(delta) < 2:
+                valid[ids, axis] = False
+                continue
+            sigma = (1.4826 / math.sqrt(2) * (delta - delta.median()).abs().median()).clamp_min(1e-12)
+            supplied = torch.isfinite(error[ids, axis]) & (error[ids, axis] > 0)
+            chosen = torch.where(supplied, error[ids, axis], sigma)
+            # A robust local floor prevents underestimated formal astrometric errors.
+            error[ids, axis] = chosen.clamp_min(sigma)
+    usable = valid & torch.isfinite(error) & (error > 0)
+    return {"value": torch.where(usable, c, 0.),
+            "variance": torch.where(usable, error.square(), torch.inf), "group": labels}
+
+
+_QUADRATURE = {}
+
+
+def gauss_legendre(order):
+    """Construct and cache float64 Gauss-Legendre nodes using CUDA Newton iterations."""
+    key = (torch.cuda.current_device(), order)
+    if key not in _QUADRATURE:
+        x = torch.cos(math.pi * (torch.arange(order, device="cuda", dtype=torch.float64) + .75) / (order + .5))
+        for _ in range(12):
+            p0, p1 = torch.ones_like(x), x
+            for degree in range(2, order + 1):
+                p0, p1 = p1, ((2 * degree - 1) * x * p1 - (degree - 1) * p0) / degree
+            derivative = order * (x * p1 - p0) / (x.square() - 1)
+            x = x - p1 / derivative
+        weights = 2 / ((1 - x.square()) * derivative.square())
+        index = x.argsort()
+        _QUADRATURE[key] = (x[index], weights[index])
+    return _QUADRATURE[key]
+
+
+def occulted_flux(separation, radius_ratio, u1, u2, order=64):
+    """Integrate a quadratic limb-darkened stellar disk with transformed radial quadrature."""
+    z = gpu64(separation)
+    p = gpu64(radius_ratio)
+    nodes, weights = gauss_legendre(order)
+    theta = (nodes + 1) * (math.pi / 4)
+    low, high = (z - p).abs().clamp_max(1), (z + p).clamp_max(1)
+    span = (high - low).clamp_min(0)
+    r = low[..., None] + span[..., None] * theta.sin().square()
+    cosine = (r.square() + z[..., None].square() - p.square()) / (2 * r * z[..., None]).clamp_min(1e-300)
+    angle = torch.acos(cosine.clamp(-1, 1))
+    mu = (1 - r.square()).clamp_min(0).sqrt()
+    intensity = 1 - u1 * (1 - mu) - u2 * (1 - mu).square()
+    jacobian = 2 * span[..., None] * theta.sin() * theta.cos()
+    partial = (2 * angle * r * intensity * jacobian * weights * (math.pi / 4)).sum(-1)
+    full_radius = (p - z).clamp(0, 1)
+    s = full_radius.square()
+    full = math.pi * ((1-u1-u2)*s + (2/3)*(u1+2*u2)*(1-(1-s).clamp_min(0).pow(1.5)) - u2*(s-.5*s.square()))
+    return ((partial + full) / (math.pi * (1-u1/3-u2/6))).clamp(0, 1)
+
+
+def profile_bank(ingress, layers, comparison):
+    """Represent normalized occultation profiles by nested, weighted intervals."""
+    layer = torch.arange(layers, device="cuda", dtype=torch.float64)
+    limb = comparison.get("limb_darkening")
+    if limb is None:
+        fractions = 1 - 2 * ingress[:, None] * layer[None, :] / max(1, layers-1)
+        increments = torch.full_like(fractions, 1/layers)
+    else:
+        radius = comparison.get("stellar_radius_solar")
+        p = .10045 * comparison.get("planet_radius_scale_rj", 1.) / radius if radius else .1
+        p = min(.95, max(.005, p))
+        ratio = 1 - 2 * ingress
+        impact2 = ((1-p)**2 - ratio.square()*(1+p)**2) / (1-ratio.square()).clamp_min(1e-12)
+        impact2 = impact2.clamp(0, (1+p)**2 * .9999)
+        fractions = (1 - layer[None, :] / layers).expand(len(ingress), -1)
+        x = 1 - (layer + .5) / layers
+        z = (impact2[:, None] + x[None, :].square() * ((1+p)**2-impact2[:, None])).sqrt()
+        levels = occulted_flux(z, p, *limb)
+        increments = torch.cat((levels[:, :1], levels[:, 1:]-levels[:, :-1]), 1).clamp_min(0)
+        increments /= increments.sum(1, keepdim=True).clamp_min(1e-300)
+    previous = increments.cumsum(1) - increments
+    return torch.stack((fractions, increments, increments * (2*previous+increments)), -1).contiguous()
+
+
+def stellar_mass(comparison):
+    mass = comparison.get("stellar_mass_solar")
+    if mass is None and comparison.get("stellar_radius_solar") and comparison.get("stellar_logg") is not None:
+        mass = 10**comparison["stellar_logg"] * .01 * (6.957e8*comparison["stellar_radius_solar"])**2 / 1.32712440018e20
+    return mass
+
+
+def orbit_bank(periods, durations, scales, nb, comparison):
+    """Integrate continuous eccentricity/periastron priors on a configurable quadrature bank."""
+    extended = comparison.get("extended_physics", False)
+    nodes = comparison.get("eccentricity_nodes", 2) if extended else -1
+    if nodes < 0:
+        phase, ratio = gpu64([.25, .5, .75]), gpu64([1., 1., 1.])
+        logp = logb = gpu64([.1, .8, .1]).log()
+        eccentricity = omega = torch.zeros_like(phase)
+    elif nodes == 0:
+        phase, ratio = gpu64([.5]), gpu64([1.])
+        logp = logb = gpu64([0.])
+        eccentricity = omega = torch.zeros_like(phase)
+    else:
+        roots, weights = gauss_legendre(nodes)
+        nangle = comparison.get("periastron_nodes", 4)
+        eccentricity = ((roots+1) * comparison.get("eccentricity_max", .8)/2).repeat_interleave(nangle)
+        omega = (2*math.pi*(torch.arange(nangle, device="cuda", dtype=torch.float64)+.5)/nangle).repeat(nodes)
+        def anomaly(f):
+            e = 2*torch.atan2((1-eccentricity).sqrt()*torch.sin(f/2), (1+eccentricity).sqrt()*torch.cos(f/2))
+            return e - eccentricity*torch.sin(e)
+        phase = (anomaly(3*math.pi/2-omega) - anomaly(math.pi/2-omega)).remainder(2*math.pi)/(2*math.pi)
+        ratio = (1+eccentricity*omega.sin())/(1-eccentricity*omega.sin())
+        base = weights.repeat_interleave(nangle).log() - math.log(nangle)
+        logp_e = base + 2*torch.log1p(-eccentricity)
+        logp_e -= torch.logsumexp(logp_e, 0)
+        logb_e = base - torch.logsumexp(base, 0)
+        logp = torch.cat((gpu64([math.log(.5)]), logp_e+math.log(.5)))
+        logb = torch.cat((gpu64([math.log(.5)]), logb_e+math.log(.5)))
+        phase, ratio = torch.cat((gpu64([.5]), phase)), torch.cat((gpu64([1.]), ratio))
+        eccentricity, omega = torch.cat((gpu64([0.]),eccentricity)), torch.cat((gpu64([0.]),omega))
+    k = torch.floor(durations[None, :, None]*scales[:, None, None]+.5).clamp_min(1)
+    ks = torch.floor(k*ratio[None, None, :]+.5).clamp_min(1)
+    shift = torch.floor(phase*nb+.5)
+    start = shift[None,None,:] + torch.div(k-ks, 2, rounding_mode="floor")
+    valid = (k < nb//4) & (ks < nb//2) & (start >= k) & (start+ks <= nb)
+    lp = logp[None,None,:].expand(len(periods),len(durations),-1).clone()
+    lb = logb[None,None,:].expand_as(lp).clone()
+    alias = torch.zeros((len(periods),len(durations)),device="cuda",dtype=torch.float64)
+    mass, radius = stellar_mass(comparison), comparison.get("stellar_radius_solar")
+    if extended and mass and radius:
+        a = (1.32712440018e20*mass*(periods*86400/(2*math.pi)).square()).pow(1/3)/(6.957e8*radius)
+        velocity = (1-eccentricity.square()).sqrt()/(1+eccentricity*omega.sin())
+        typical = periods[:,None]/math.pi * torch.asin((1.1/a).clamp_max(.999))[:,None] * velocity[None,:] * math.sqrt(.75)
+        scatter = comparison.get("stellar_duration_scatter", .5)
+        def compatibility(predicted):
+            residual = (durations[None,:,None]/predicted[:,None,:].clamp_min(1e-12)).log()/scatter
+            return -2*torch.log1p(residual.square()/3)
+        lp += compatibility(typical)
+        broad=compatibility(typical*1.3)
+        lb += torch.logaddexp(broad,torch.zeros_like(broad))-math.log(2)
+        alias = compatibility((typical[:, :1]*2**(1/3)))[:,:,0]
+        alias=torch.logaddexp(alias,torch.zeros_like(alias))-math.log(2)
+    lp, lb = torch.where(valid,lp,-torch.inf), torch.where(valid,lb,-torch.inf)
+    valid_duration = (k[:,:,0]<nb//4)
+    count = valid_duration.sum(1).double().log()
+    lp += (count - torch.logsumexp(lp.flatten(1),1))[:,None,None]
+    lb += (count - torch.logsumexp(lb.flatten(1),1))[:,None,None]
+    alias = torch.where(valid_duration,alias,-torch.inf)
+    alias += (count-torch.logsumexp(alias,1))[:,None]
+    orbit = torch.stack((phase[None,None,:].expand_as(lp),ratio[None,None,:].expand_as(lp),lp,lb),-1).contiguous()
+    return orbit, alias.contiguous()
+
+
+def astrometry_fields(astrometry, n):
+    if astrometry is None:
+        return torch.empty((0,n),device="cuda",dtype=torch.float64), torch.empty((2,0),device="cuda",dtype=torch.float64)
+    _, inverse = torch.unique(astrometry["group"],return_inverse=True)
+    groups = int(inverse.max())+1
+    columns, normalizers = [], []
+    for axis in range(2):
+        w = torch.where(torch.isfinite(astrometry["variance"][:,axis]),astrometry["variance"][:,axis].reciprocal(),0.)
+        totals = torch.zeros(groups,device="cuda",dtype=torch.float64).scatter_add_(0,inverse,w)
+        means = torch.zeros_like(totals).scatter_add_(0,inverse,w*astrometry["value"][:,axis])/totals.clamp_min(1e-300)
+        columns.extend((w*(astrometry["value"][:,axis]-means[inverse]),w))
+        columns.extend(w*(inverse==group) for group in range(groups))
+        normalizers.append(totals)
+    return torch.stack(columns).contiguous(),torch.stack(normalizers).contiguous()
+
+
+def orbital_fields(ready, periods, rho, comparison):
+    """Apply the shared precision and integrate Gaussian ellipsoidal harmonics jointly with eclipses."""
+    if not comparison.get("extended_physics",False) or not comparison.get("ellipsoidal",True):
+        return None, torch.zeros((len(periods),len(rho),4,6),device="cuda",dtype=torch.float64)
+    angle = 2*math.pi*ready.time[None,:]/periods[:,None]
+    x = torch.stack((angle.cos(),angle.sin(),(2*angle).cos(),(2*angle).sin()),-1)
+    wx = ready.fields[2][None,:,None]*x
+    if len(ready.beta):
+        modes = (ready.prefix[:,1:]-ready.prefix[:,:-1]).T
+        wx -= torch.einsum('nr,prk->pnk',modes,ready.beta[None,:,None]*torch.einsum('nr,pnk->prk',modes,x))
+    wx -= ready.fields[1][None,:,None]*torch.einsum('n,pnk->pk',ready.fields[1],x)[:,None,:]/ready.baseline_norm
+    mass, radius = stellar_mass(comparison), comparison.get("stellar_radius_solar")
+    sp = torch.full_like(periods,comparison.get("ellipsoidal_planet_scale",1e-5))
+    sb = torch.full_like(periods,comparison.get("ellipsoidal_binary_scale",1e-3))
+    if mass and radius:
+        ar = (1.32712440018e20*mass*(periods*86400/(2*math.pi)).square()).pow(1/3)/(6.957e8*radius)
+        factor = comparison.get("ellipsoidal_alpha",1.5)*ar.pow(-3)*comparison.get("target_flux_fraction",1.)
+        sp = factor*.000954588*comparison.get("planet_mass_scale_mj",1.)/mass
+        sb = factor*(.5/1.5)
+    corrections=[]
+    for family, sigma in ((2,sp),(2,sb),(0,sb/4),(0,sp/4)):
+        xx, px = x[:,:,family:family+2],wx[:,:,family:family+2]
+        gram = torch.einsum('pnk,pnl->pkl',xx,px)
+        b = torch.einsum('pnk,n->pk',xx,ready.fields[0])
+        r2 = rho[None,:,None,None].square()
+        scale = sigma[:,None,None,None].square()
+        matrix = torch.eye(2,device="cuda",dtype=torch.float64)[None,None,:,:]+scale*gram[:,None,:,:]/r2
+        chol = torch.linalg.cholesky(matrix)
+        a = torch.cholesky_inverse(chol)*scale
+        d = torch.einsum('pdkl,pl->pdk',a,b)/rho[None,:,None].pow(4)
+        base = .5*torch.einsum('pk,pdk->pd',b,d)-chol.diagonal(dim1=-2,dim2=-1).log().sum(-1)
+        a = a/rho[None,:,None,None].pow(4)
+        corrections.append(torch.stack((a[:,:,0,0],a[:,:,0,1],a[:,:,1,1],d[:,:,0],d[:,:,1],base),-1))
+    return wx.permute(0,2,1).contiguous(),torch.stack(corrections,2).contiguous()
 
 
 def prepare_curve(time_values, flux_values, errors=None, sectors=None, bin_minutes=10.,
-                  window=.75, clip_sigma=4.):
+                  window=.75, clip_sigma=4., centroid=None, centroid_err=None):
     """Common detector input: normalize, bin, detrend and clip positive outliers (GPU).
 
     Negative excursions (dips) are never clipped. Errors are the propagated
     formal errors inflated to the robust adjacent-difference scatter.
     """
-    diagonal = fit_segment_noise(time_values, flux_values, errors, sectors, bin_minutes=bin_minutes, degree=0)
+    diagonal = fit_segment_noise(time_values, flux_values, errors, sectors, bin_minutes=bin_minutes, degree=0,
+                                  centroid=centroid, centroid_err=centroid_err)
     flat = biweight_flatten(diagonal.time, -diagonal.deficit, window)
     sigma = diagonal.variance.sqrt()
     scale = 1.4826 * (flat - flat.median()).abs().median()
     keep = torch.isfinite(flat) & (flat <= clip_sigma * scale)
+    astrometry = diagonal.ancillary
+    if astrometry is not None:
+        for label in torch.unique(astrometry["group"]):
+            for axis in range(2):
+                valid = (astrometry["group"] == label) & torch.isfinite(astrometry["variance"][:, axis])
+                if int(valid.sum()) >= 6:
+                    astrometry["value"][valid, axis] = biweight_flatten(diagonal.time[valid], astrometry["value"][valid, axis], window)
+        astrometry = {key: value[keep] for key, value in astrometry.items()}
     return PreparedCurve(diagonal.time[keep] + diagonal.origin, flat[keep], sigma[keep],
                          {**diagonal.provenance, "detrending": f"biweight window {window} d",
                           "positive_clip_sigma": clip_sigma, "clipped": int((~keep).sum()),
-                          "observations": int(keep.sum())})
+                          "observations": int(keep.sum()), "centroid_available": astrometry is not None}, astrometry)
 
 
 def search_curve(curve, periods, durations, threshold=4., noise_degree=2, correlated_noise=True,
@@ -361,7 +608,7 @@ def search_curve(curve, periods, durations, threshold=4., noise_degree=2, correl
         chosen = ds < lo / 4
         if bool(selected.any()) and bool(chosen.any()):
             if comparison is not None:
-                table, details = compare_search(ready, ps[selected], ds[chosen], comparison,
+                table, details = compare_search(ready, ps[selected], ds[chosen], comparison,astrometry=curve.astrometry,
                     threshold=threshold, ingress_fractions=ingress_fractions,
                     noise_scale=rho[chosen], **options)
                 tables.append(table)
@@ -382,7 +629,7 @@ def search_curve(curve, periods, durations, threshold=4., noise_degree=2, correl
 
 def compare_search(ready, periods, durations, comparison, threshold=7.1,
                    phase_oversample=4, ingress_fractions=(0., .2, .45), shape_layers=4,
-                   period_batch=None, candidate_capacity=131072, max_fold_mib=128, noise_scale=None):
+                   period_batch=None, candidate_capacity=131072, max_fold_mib=128, noise_scale=None,astrometry=None):
     """Joint planet/binary/noise search with integrated evidence and amplitude maxima.
 
     Each local model integrates a positive eclipse depth with a half-normal
@@ -422,11 +669,20 @@ def compare_search(ready, periods, durations, comparison, threshold=7.1,
     # Eight-cell alignment makes all quarter-phase offsets and parity exact.
     nb = max(8, 4 * math.ceil(phase_oversample * float(ps[-1]) / float(ds.min()) / 4))
     bins, tile, n, rank = 2 * nb, 64, len(ready.time), len(ready.beta)
-    nf = 4 + rank
-    fields = torch.cat((ready.fields, ready.prefix[:, 1:] - ready.prefix[:, :-1]), dim=0).contiguous()
+    extended=comparison.get("extended_physics",False)
+    harmonic=extended and comparison.get("ellipsoidal",True)
+    tile=32 if extended else 64
+    warps=2 if extended else 4
+    astro_fields,astro_norm=astrometry_fields(astrometry if extended else None,n)
+    ng=astro_norm.shape[1]
+    astart=4+rank
+    hstart=astart+len(astro_fields)
+    nf=hstart+(4 if harmonic else 0)
+    fields = torch.cat((ready.fields, ready.prefix[:, 1:] - ready.prefix[:, :-1],astro_fields), dim=0).contiguous()
     ingress = gpu64(ingress_fractions)
     shape_logits = torch.stack((-4. * ingress, 2. * ingress), dim=1)
     shape_priors = (shape_logits - torch.logsumexp(shape_logits, dim=0)).contiguous()
+    shapes=profile_bank(ingress,shape_layers,comparison if extended else {})
     p_prior, b_prior = comparison["planet_prior"], comparison["binary_prior"]
     planet_scale = comparison["planet_depth_scale"]
     if comparison.get("stellar_radius_solar") is not None:
@@ -439,39 +695,62 @@ def compare_search(ready, periods, durations, comparison, threshold=7.1,
     parameter_values.extend(value for scenario in zip(
         (0., .01, .1, .5, 1.), (.75, .15, .08, .015, .005), (.10, .10, .20, .25, .35)) for value in scenario)
     parameter_values.extend((.25, .5, .75, 1., 4. / 3., 2., 4.))
+    parameter_values.extend((comparison.get("centroid_planet_scale",.001),comparison.get("centroid_binary_scale",.05)))
     parameters = gpu64(parameter_values)
     if not bool(torch.isfinite(parameters).all() & (parameters[:3] > 0).all()):
         raise ValueError("Depth priors must remain positive and finite after stellar conditioning")
     tiles = triton.cdiv(nb, tile)
+    partials=tiles*len(ds)*len(ingress) if extended else tiles
     output, batches, integrated_periods, omitted_groups, total_groups = [], 0, 0, 0, 0
+    kernel_registers=kernel_spills=0
     cursor = 0
     while cursor < len(ps):
         stop = min(cursor + batch, len(ps))
         pp = ps[cursor:stop]
-        expected_bytes = len(pp) * (nf * (2 * bins + 1) + tiles * 2 * 15 + 28) * 8
+        expected_bytes = len(pp) * (nf * (2 * bins + 1) + partials * 2 * 15 + 28) * 8
         if expected_bytes > max_fold_mib * 2**20:
             if len(pp) == 1:
                 raise MemoryError("One comparison fold exceeds max_fold_mib; increase the explicit budget")
             batch = max(1, len(pp) // 2)
             continue
         scales = (nb / pp).contiguous()
+        parameter_bank=parameters[None,:].expand(len(pp),-1).clone()
+        mass=stellar_mass(comparison)
+        if extended and mass and comparison.get("stellar_radius_solar") and comparison.get("stellar_teff"):
+            ar=(1.32712440018e20*mass*(pp*86400/(2*math.pi)).square()).pow(1/3)/(6.957e8*comparison["stellar_radius_solar"])
+            temperature=comparison["stellar_teff"]/(2*ar).sqrt()
+            wavelength,weight=gauss_legendre(16)
+            wavelength=(wavelength*.2+.8)*1e-6
+            def photons(t):
+                x=.01438776877/(wavelength[None,:]*t[:,None])
+                denominator=torch.where(x>50,x,torch.expm1(x.clamp_max(50)).log())
+                return torch.logsumexp(weight[None,:].log()-4*wavelength[None,:].log()-denominator,1)
+            thermal=(photons(temperature)-photons(torch.full_like(temperature,comparison["stellar_teff"]))).exp()
+            parameter_bank[:,9]=(thermal+.1/ar.square()).clamp(1e-7,.1)
+        orbit,alias=orbit_bank(pp,ds,scales,nb,comparison)
+        norb=orbit.shape[2]
+        period_fields,modulation=orbital_fields(ready,pp,rho,comparison)
         folded = torch.zeros((len(pp), nf, bins), device="cuda", dtype=torch.float64)
-        fold_comparison[(len(pp), nf, triton.cdiv(n, 256))](
+        fold_comparison[(len(pp), len(fields), triton.cdiv(n, 256))](
             ready.time, fields, scales, folded, n, bins, nf, 256, enable_fp_fusion=False)
+        if harmonic:
+            fold_period_fields[(len(pp),4,triton.cdiv(n,256))](ready.time,period_fields,scales,folded,n,bins,nf,hstart,256,enable_fp_fusion=False)
         cumulative = torch.cat((torch.zeros((len(pp), nf, 1), device="cuda", dtype=torch.float64),
                                 folded.cumsum(2)), dim=2).contiguous()
         del folded
         screen = torch.empty((len(pp), tiles, 4), device="cuda", dtype=torch.float64)
-        comparison_screen[(tiles, len(pp))](cumulative, ready.beta, scales, ds, rho, duration_log_mass, ingress,
-            shape_priors, parameters, ready.baseline_norm, screen, n, bins, nf, rank, len(ds), len(ingress_fractions),
-            shape_layers, tiles, tile, num_warps=4, enable_fp_fusion=False)
+        comparison_screen[(tiles, len(pp))](cumulative, ready.beta, scales, ds, rho, duration_log_mass, ingress,shapes,
+            shape_priors, parameter_bank, ready.baseline_norm, screen, n, bins, nf, rank, len(ds), len(ingress_fractions),
+            shape_layers, tiles, tile, num_warps=warps, enable_fp_fusion=False)
         # Every phase/shape is integrated for qualifying periods; no local evidence is truncated.
         eligible = screen[:, :, 0].amax(1) >= threshold * (1. - 1e-12)
         rtol = comparison.get("evidence_rtol", 1e-12)
-        margin = math.log(rtol) - math.log(4 * nb * len(ds) * len(ingress_fractions)) if rtol else -math.inf
+        margin = math.log(rtol) - math.log((norb+1) * nb * len(ds) * len(ingress_fractions)) if rtol else -math.inf
         winner = screen[:, :, 1].argmax(1)
         pilot_key = screen[torch.arange(len(pp), device="cuda"), winner, 3][eligible]
         floors = torch.cat((screen[:, :, 1:3].amax(1)[eligible] + margin, pilot_key[:, None]), dim=1).contiguous()
+        floors[:,:2]=-torch.inf
+        orbit,alias,modulation,parameter_bank=orbit[eligible].contiguous(),alias[eligible].contiguous(),modulation[eligible].contiguous(),parameter_bank[eligible].contiguous()
         cumulative, pp, scales = cumulative[eligible].contiguous(), pp[eligible].contiguous(), scales[eligible].contiguous()
         integrated_periods += len(pp)
         cursor, batches = stop, batches + 1
@@ -482,22 +761,24 @@ def compare_search(ready, periods, durations, comparison, threshold=7.1,
                     duration_log_mass[None, :], -torch.inf), dim=1)).contiguous()
         # Full scenario integration at one incumbent tightens bounds without restricting the search bank.
         pilot = torch.empty((len(pp), 1, 2, 15), device="cuda", dtype=torch.float64)
-        joint_tiles[(1, len(pp))](cumulative, ready.beta, pp, scales, ds, rho, duration_log_mass, ingress,
-            shape_priors, ready.baseline_norm, parameters, floors, pilot, n, bins, nf, rank,
-            len(ds), len(ingress_fractions), shape_layers, 1, 1, threshold, True,
+        joint_tiles[(1, len(pp))](cumulative, ready.beta, pp, scales, ds, rho, duration_log_mass, ingress,shapes,
+            shape_priors, ready.baseline_norm, parameter_bank,orbit,alias,modulation,astro_norm,floors, pilot, n, bins, nf, rank,
+            len(ds), len(ingress_fractions), shape_layers, 1, 1, threshold,norb,astart,ng,hstart,harmonic, True,
             num_warps=1, enable_fp_fusion=False)
         floors[:, :2] = torch.maximum(floors[:, :2], pilot[:, 0, 0, 11:13] + margin)
         del pilot
-        parts = torch.empty((len(pp), tiles, 2, 15), device="cuda", dtype=torch.float64)
+        parts = torch.empty((len(pp), partials, 2, 15), device="cuda", dtype=torch.float64)
         table = torch.empty((len(pp), 2, 14), device="cuda", dtype=torch.float64)
-        joint_tiles[(tiles, len(pp))](cumulative, ready.beta, pp, scales, ds, rho, duration_log_mass, ingress,
-            shape_priors, ready.baseline_norm, parameters, floors, parts, n, bins, nf, rank,
-            len(ds), len(ingress_fractions), shape_layers, tiles, tile, threshold,
-            num_warps=4, enable_fp_fusion=False)
+        compiled=joint_tiles[(partials, len(pp))](cumulative, ready.beta, pp, scales, ds, rho, duration_log_mass, ingress,shapes,
+            shape_priors, ready.baseline_norm, parameter_bank,orbit,alias,modulation,astro_norm,floors, parts, n, bins, nf, rank,
+            len(ds), len(ingress_fractions), shape_layers, partials, tile, threshold,norb,astart,ng,hstart,harmonic,False,extended,
+            num_warps=warps, enable_fp_fusion=False)
+        kernel_registers=max(kernel_registers,compiled.n_regs)
+        kernel_spills=max(kernel_spills,compiled.n_spills)
         omitted_groups += int(parts[:, :, 0, 13].sum())
-        total_groups += len(pp) * tiles * len(ds) * len(ingress_fractions) * 4
-        joint_merge[(len(pp), 2)](parts, pp, scales, ds, ingress, parameters, log_mass, table, tiles,
-            len(ds), bins, triton.next_power_of_2(tiles), num_warps=4, enable_fp_fusion=False)
+        total_groups += len(pp) * tiles * len(ds) * len(ingress_fractions) * (norb+1)
+        joint_merge[(len(pp), 2)](parts, pp, scales, ds, ingress, parameter_bank, log_mass, table, partials,
+            len(ds), bins, triton.next_power_of_2(partials), num_warps=4, enable_fp_fusion=False)
         hit = torch.isfinite(table[:, :, 3])
         # Identical maxima are represented once with both selection bits set.
         same = (table[:, 0, :5] == table[:, 1, :5]).all(1) & (table[:, 0, 12] == table[:, 1, 12]) & hit.all(1)
@@ -518,14 +799,17 @@ def compare_search(ready, periods, durations, comparison, threshold=7.1,
              "threshold": threshold, "seconds_search": time.perf_counter() - start,
              "effective_planet_depth_scale": planet_scale,
              "score_definition": "log(pi_planet Z_planet(P) / (pi_noise Z_noise + pi_binary Z_binary(P)))",
-             "ephemeris_integration": "uniform phase and duration masses; normalized shape masses",
+             "ephemeris_integration": "uniform phase; normalized duration/orbit and shape priors" if extended else "uniform phase and duration masses; normalized shape masses",
              "duration_noise_null_log_mass": duration_log_mass.tolist(),
+             "extended_physics":extended,"ellipsoidal":harmonic,"centroid_groups":ng,"orbital_quadrature_nodes":norb,
+             "kernel_registers":kernel_registers,"kernel_spill_slots":kernel_spills,
+             "stellar_context":{key:comparison.get(key) for key in ("stellar_radius_solar","stellar_mass_solar","stellar_logg","stellar_teff","stellar_tmag")},
              "evidence_model": "positive-depth linear eclipse surrogate, conditional on fitted noise",
-             "binary_period_multipliers": [1, 2], "secondary_phases": [.25, .5, .75],
+             "binary_period_multipliers": [1, 2], "secondary_phases": None if extended else [.25, .5, .75],
              "secondary_ratios": [0., .01, .1, .5, 1.],
              "planet_secondary_weights": [.75, .15, .08, .015, .005],
              "binary_secondary_weights": [.10, .10, .20, .25, .35],
-             "secondary_phase_weights": [.1, .8, .1],
+             "secondary_phase_weights": None if extended else [.1, .8, .1],
              "alternating_depth_ratios": [.25, .5, .75, 1., 4. / 3., 2., 4.],
              "binary_family_weights": [.5, .5], "binary_scale_weights": [.5, .5],
              "shape_log_masses": shape_priors.tolist()}

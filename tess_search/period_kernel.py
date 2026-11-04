@@ -188,14 +188,25 @@ def fold_comparison(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr,
 
 
 @triton.jit
-def layered_sum(C, row, start, width, ingress, NB: tl.constexpr, LAYERS: tl.constexpr,
+def fold_period_fields(T, X, Scale, Out, N: tl.constexpr, NB: tl.constexpr,
+                       NF: tl.constexpr, FIRST: tl.constexpr, B: tl.constexpr):
+    f, field = tl.program_id(0),tl.program_id(1)
+    i=tl.program_id(2)*B+tl.arange(0,B)
+    cell=tl.floor(tl.load(T+i,i<N,other=0.)*tl.load(Scale+f)).to(tl.int64)%NB
+    value=tl.load(X+(f*4+field)*N+i,i<N,other=0.)
+    tl.atomic_add(Out+(f.to(tl.int64)*NF+FIRST+field)*NB+cell,value,i<N,sem="relaxed")
+
+
+@triton.jit
+def layered_sum(C, row, start, width, Shape, si, NB: tl.constexpr, LAYERS: tl.constexpr,
                 SQUARED: tl.constexpr):
     """Integrate a staircase or its square using nested interval sums."""
+    start=start+tl.zeros_like(row)
     value = tl.full(start.shape, 0., tl.float64)
-    for layer in tl.static_range(LAYERS):
-        fraction = tl.full([], layer if LAYERS > 1 else 0, tl.float64) / max(LAYERS - 1, 1)
-        inner = tl.maximum(1, tl.floor(width.to(tl.float64) * (1 - 2 * ingress * fraction) + .5).to(tl.int32))
-        coefficient = tl.full([], 2 * layer + 1 if SQUARED else 1, tl.float64) / (LAYERS * LAYERS if SQUARED else LAYERS)
+    for layer in tl.range(LAYERS,loop_unroll_factor=1):
+        fraction = tl.load(Shape + (si * LAYERS + layer) * 3)
+        inner = tl.maximum(1, tl.floor(width.to(tl.float64) * fraction + .5).to(tl.int32))
+        coefficient = tl.load(Shape + (si * LAYERS + layer) * 3 + (2 if SQUARED else 1))
         value += coefficient * circular_sum(C, row, start + (width - inner) // 2, inner, NB)
     return value
 
@@ -226,7 +237,7 @@ def positive_amplitude_evidence(a, q, tau):
 
 
 @triton.jit
-def comparison_screen(C, Beta, Scale, Dur, Rho, DurationLogMass, Ingress, ShapePrior, Parameters, BaseNorm, Scores, N,
+def comparison_screen(C, Beta, Scale, Dur, Rho, DurationLogMass, Ingress, Shape, ShapePrior, Parameters, BaseNorm, Scores, N,
                       NB: tl.constexpr, NF: tl.constexpr, RANK: tl.constexpr,
                       ND: tl.constexpr, NS: tl.constexpr, LAYERS: tl.constexpr,
                       NT: tl.constexpr, B: tl.constexpr):
@@ -235,6 +246,7 @@ def comparison_screen(C, Beta, Scale, Dur, Rho, DurationLogMass, Ingress, ShapeP
     j = tile * B + tl.arange(0, B)
     jj = tl.minimum(j, NB // 2 - 1)
     row = f.to(tl.int64) * NF * (NB + 1)
+    Parameters += f * 30
     scale, c = tl.load(Scale + f), tl.load(BaseNorm)
     best = tl.full([B], -float("inf"), tl.float64)
     best_a = tl.full([B], 0., tl.float64)
@@ -253,17 +265,17 @@ def comparison_screen(C, Beta, Scale, Dur, Rho, DurationLogMass, Ingress, ShapeP
         usable = (j < NB // 2) & (raw_k < NB // 8) & (count >= 3) & (count <= N - 3)
         for si in tl.range(NS, loop_unroll_factor=1):
             ingress = tl.load(Ingress + si)
-            a = layered_sum(C, row, jj, k, ingress, NB, LAYERS, False) \
-                + layered_sum(C, row, jj + NB // 2, k, ingress, NB, LAYERS, False)
-            pe = layered_sum(C, row + NB + 1, jj, k, ingress, NB, LAYERS, False)
-            po = layered_sum(C, row + NB + 1, jj + NB // 2, k, ingress, NB, LAYERS, False)
-            ne = layered_sum(C, row + 2 * (NB + 1), jj, k, ingress, NB, LAYERS, True)
-            no = layered_sum(C, row + 2 * (NB + 1), jj + NB // 2, k, ingress, NB, LAYERS, True)
+            a = layered_sum(C, row, jj, k, Shape, si, NB, LAYERS, False) \
+                + layered_sum(C, row, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
+            pe = layered_sum(C, row + NB + 1, jj, k, Shape, si, NB, LAYERS, False)
+            po = layered_sum(C, row + NB + 1, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
+            ne = layered_sum(C, row + 2 * (NB + 1), jj, k, Shape, si, NB, LAYERS, True)
+            no = layered_sum(C, row + 2 * (NB + 1), jj + NB // 2, k, Shape, si, NB, LAYERS, True)
             qe, qo, qeo = ne - pe * pe / c, no - po * po / c, -pe * po / c
             for mode in range(RANK):
                 mr = row + (4 + mode) * (NB + 1)
-                ge = layered_sum(C, mr, jj, k, ingress, NB, LAYERS, False)
-                go = layered_sum(C, mr, jj + NB // 2, k, ingress, NB, LAYERS, False)
+                ge = layered_sum(C, mr, jj, k, Shape, si, NB, LAYERS, False)
+                go = layered_sum(C, mr, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
                 beta = tl.load(Beta + mode)
                 qe -= beta * ge * ge
                 qo -= beta * go * go
@@ -322,6 +334,89 @@ def subspace_upper(a, b, q, r, cross, rho2):
 
 
 @triton.jit
+def modulated_pair(a,b,q,r,cross,g0,g1,h0,h1,Modulation,f,di,family,rho2,ND:tl.constexpr):
+    ptr=Modulation+((f*ND+di)*4+family)*6
+    m0,m1,m2=tl.load(ptr),tl.load(ptr+1),tl.load(ptr+2)
+    d0,d1,base=tl.load(ptr+3),tl.load(ptr+4),tl.load(ptr+5)
+    aq=a/rho2-g0*d0-g1*d1
+    bq=b/rho2-h0*d0-h1*d1
+    qq=q/rho2-m0*g0*g0-2*m1*g0*g1-m2*g1*g1
+    rr=r/rho2-m0*h0*h0-2*m1*h0*h1-m2*h1*h1
+    xx=cross/rho2-m0*g0*h0-m1*(g0*h1+g1*h0)-m2*g1*h1
+    return aq,bq,qq,rr,xx,base
+
+
+@triton.jit
+def harmonic_pair(C,row,j,s,k,ks,Shape,si,NB:tl.constexpr,LAYERS:tl.constexpr,
+                  FIRST:tl.constexpr,PAIRED:tl.constexpr,ENABLED:tl.constexpr):
+    g0=tl.full(j.shape,0.,tl.float64);g1=tl.full(j.shape,0.,tl.float64)
+    h0=tl.full(j.shape,0.,tl.float64);h1=tl.full(j.shape,0.,tl.float64)
+    if ENABLED:
+        g0=layered_sum(C,row+FIRST*(NB+1),j,k,Shape,si,NB,LAYERS,False)
+        g1=layered_sum(C,row+(FIRST+1)*(NB+1),j,k,Shape,si,NB,LAYERS,False)
+        h0=layered_sum(C,row+FIRST*(NB+1),s,ks,Shape,si,NB,LAYERS,False)
+        h1=layered_sum(C,row+(FIRST+1)*(NB+1),s,ks,Shape,si,NB,LAYERS,False)
+        if PAIRED:
+            g0+=layered_sum(C,row+FIRST*(NB+1),j+NB//2,k,Shape,si,NB,LAYERS,False)
+            g1+=layered_sum(C,row+(FIRST+1)*(NB+1),j+NB//2,k,Shape,si,NB,LAYERS,False)
+            h0+=layered_sum(C,row+FIRST*(NB+1),s+NB//2,ks,Shape,si,NB,LAYERS,False)
+            h1+=layered_sum(C,row+(FIRST+1)*(NB+1),s+NB//2,ks,Shape,si,NB,LAYERS,False)
+    return g0,g1,h0,h1
+
+
+@triton.jit
+def astrometric_pair(C,row,j,s,k,ks,Shape,si,Norm,NB:tl.constexpr,LAYERS:tl.constexpr,
+                     FIRST:tl.constexpr,NG:tl.constexpr,PAIRED:tl.constexpr):
+    axis=tl.arange(0,2)[:,None]
+    jj=j[None,:]
+    ss=s[None,:]
+    a=tl.full((2,j.shape[0]),0.,tl.float64);b=tl.full((2,j.shape[0]),0.,tl.float64)
+    q=tl.full((2,j.shape[0]),0.,tl.float64);r=tl.full((2,j.shape[0]),0.,tl.float64)
+    cross=tl.full((2,j.shape[0]),0.,tl.float64)
+    if NG>0:
+        base=row+(FIRST+axis*(2+NG))*(NB+1)
+        a=layered_sum(C,base,jj,k,Shape,si,NB,LAYERS,False)
+        b=layered_sum(C,base,ss,ks,Shape,si,NB,LAYERS,False)
+        q=layered_sum(C,base+NB+1,jj,k,Shape,si,NB,LAYERS,True)
+        r=layered_sum(C,base+NB+1,ss,ks,Shape,si,NB,LAYERS,True)
+        if PAIRED:
+            a+=layered_sum(C,base,jj+NB//2,k,Shape,si,NB,LAYERS,False)
+            b+=layered_sum(C,base,ss+NB//2,ks,Shape,si,NB,LAYERS,False)
+            q+=layered_sum(C,base+NB+1,jj+NB//2,k,Shape,si,NB,LAYERS,True)
+            r+=layered_sum(C,base+NB+1,ss+NB//2,ks,Shape,si,NB,LAYERS,True)
+        for group in range(NG):
+            c=tl.load(Norm+axis*NG+group)
+            ga=layered_sum(C,base+(2+group)*(NB+1),jj,k,Shape,si,NB,LAYERS,False)
+            gb=layered_sum(C,base+(2+group)*(NB+1),ss,ks,Shape,si,NB,LAYERS,False)
+            if PAIRED:
+                ga+=layered_sum(C,base+(2+group)*(NB+1),jj+NB//2,k,Shape,si,NB,LAYERS,False)
+                gb+=layered_sum(C,base+(2+group)*(NB+1),ss+NB//2,ks,Shape,si,NB,LAYERS,False)
+            q-=ga*ga/tl.maximum(c,1.e-300)
+            r-=gb*gb/tl.maximum(c,1.e-300)
+            cross-=ga*gb/tl.maximum(c,1.e-300)
+    return a,b,q,r,cross
+
+
+@triton.jit
+def centroid_evidence(a,b,q,r,cross,ratio,sigma):
+    aa=a+ratio*b
+    qq=tl.maximum(q+2*ratio*cross+ratio*ratio*r,0.)
+    v=1+sigma*sigma*qq
+    return tl.sum(.5*sigma*sigma*aa*aa/v-.5*tl.log(v),0)
+
+
+@triton.jit
+def centroid_upper(a,b,q,r,cross):
+    det=q*r-cross*cross
+    safe=(q>0)&(r>0)&(det>tl.full([],1.e-8,tl.float64)*q*r)
+    value=tl.where(safe,.5*(a*a*r+b*b*q-2*a*b*cross)/tl.maximum(det,1.e-300),float("inf"))
+    value=tl.where((r==0)&(b==0)&(cross==0)&(q>0),.5*a*a/q,value)
+    value=tl.where((q==0)&(a==0)&(cross==0)&(r>0),.5*b*b/r,value)
+    value=tl.where((q==0)&(r==0)&(a==0)&(b==0),0.,value)
+    return tl.sum(tl.maximum(value,0.),0)*tl.full([],1.000001,tl.float64)+tl.full([],1e-6,tl.float64)
+
+
+@triton.jit
 def log_sum(values):
     high = tl.max(values, 0)
     safe_high = tl.where(high > -float("inf"), high, 0.)
@@ -329,19 +424,23 @@ def log_sum(values):
 
 
 @triton.jit
-def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, ShapePrior, BaseNorm,
-                Parameters, Floors, Parts, N, NB: tl.constexpr, NF: tl.constexpr,
+def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shape, ShapePrior, BaseNorm,
+                Parameters, Orbit, Alias, Modulation, AstroNorm, Floors, Parts, N, NB: tl.constexpr, NF: tl.constexpr,
                 RANK: tl.constexpr, ND: tl.constexpr, NS: tl.constexpr,
                 LAYERS: tl.constexpr, NT: tl.constexpr, B: tl.constexpr,
-                THRESHOLD: tl.constexpr, PILOT: tl.constexpr = False):
+                THRESHOLD: tl.constexpr, NORB: tl.constexpr, ASTART: tl.constexpr, NG: tl.constexpr,
+                HSTART: tl.constexpr, HARMONIC: tl.constexpr, PILOT: tl.constexpr = False, PARTITIONED: tl.constexpr = False):
     """Compare normalized eclipse hypotheses at every ephemeris before either maximization."""
-    tile, f = tl.program_id(0), tl.program_id(1)
+    part_index, f = tl.program_id(0), tl.program_id(1)
+    phase_tiles=triton.cdiv(NB//2,B)
+    tile=part_index%phase_tiles if PARTITIONED else part_index
     pilot_key = tl.load(Floors + f * 3 + 2).to(tl.int64)
     j = tl.full([B], 0, tl.int32) + pilot_key % (NB // 2) if PILOT else tile * B + tl.arange(0, B)
     jj = tl.minimum(j, NB // 2 - 1)
     row = f.to(tl.int64) * NF * (NB + 1)
     c = tl.load(BaseNorm)
     scale = tl.load(Scale + f)
+    Parameters += f * 30
     tau_p, tau_b, tau_d = tl.load(Parameters), tl.load(Parameters + 1), tl.load(Parameters + 2)
     log_pi_p, log_pi_b, log_pi_0 = tl.load(Parameters + 3), tl.load(Parameters + 4), tl.load(Parameters + 5)
     best_joint = tl.full([B], -float("inf"), tl.float64)
@@ -370,28 +469,28 @@ def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shap
     floor_p = tl.full([], -float("inf"), tl.float64) if PILOT else tl.load(Floors + f * 3)
     floor_b = tl.full([], -float("inf"), tl.float64) if PILOT else tl.load(Floors + f * 3 + 1)
     # Each lane carries only its two winners, never a trial-by-observation array.
-    for di_loop in tl.range(1 if PILOT else ND, loop_unroll_factor=1):
-        di = pilot_key // (NB // 2) % ND if PILOT else di_loop
+    for di_loop in tl.range(1 if PILOT or PARTITIONED else ND, loop_unroll_factor=1):
+        di = pilot_key // (NB // 2) % ND if PILOT else (part_index//phase_tiles)%ND if PARTITIONED else di_loop
         raw_k = tl.maximum(1, tl.floor(tl.load(Dur + di) * scale + .5).to(tl.int32))
         k = tl.minimum(raw_k, NB // 8 - 1)
         rho2 = tl.load(Rho + di) * tl.load(Rho + di)
         count = circular_sum(C, row + 3 * (NB + 1), jj, k, NB) \
                 + circular_sum(C, row + 3 * (NB + 1), jj + NB // 2, k, NB)
         usable = (j < NB // 2) & (raw_k < NB // 8) & (count >= 3) & (count <= N - 3)
-        for si_loop in tl.range(1 if PILOT else NS, loop_unroll_factor=1):
-            si = pilot_key // ((NB // 2) * ND) if PILOT else si_loop
+        for si_loop in tl.range(1 if PILOT or PARTITIONED else NS, loop_unroll_factor=1):
+            si = pilot_key // ((NB // 2) * ND) if PILOT else part_index//(phase_tiles*ND) if PARTITIONED else si_loop
             ingress = tl.load(Ingress + si)
-            ae = layered_sum(C, row, jj, k, ingress, NB, LAYERS, False)
-            ao = layered_sum(C, row, jj + NB // 2, k, ingress, NB, LAYERS, False)
-            pe = layered_sum(C, row + NB + 1, jj, k, ingress, NB, LAYERS, False)
-            po = layered_sum(C, row + NB + 1, jj + NB // 2, k, ingress, NB, LAYERS, False)
-            ne = layered_sum(C, row + 2 * (NB + 1), jj, k, ingress, NB, LAYERS, True)
-            no = layered_sum(C, row + 2 * (NB + 1), jj + NB // 2, k, ingress, NB, LAYERS, True)
+            ae = layered_sum(C, row, jj, k, Shape, si, NB, LAYERS, False)
+            ao = layered_sum(C, row, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
+            pe = layered_sum(C, row + NB + 1, jj, k, Shape, si, NB, LAYERS, False)
+            po = layered_sum(C, row + NB + 1, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
+            ne = layered_sum(C, row + 2 * (NB + 1), jj, k, Shape, si, NB, LAYERS, True)
+            no = layered_sum(C, row + 2 * (NB + 1), jj + NB // 2, k, Shape, si, NB, LAYERS, True)
             qe, qo, qeo = ne - pe * pe / c, no - po * po / c, -pe * po / c
             for mode in range(RANK):
                 mr = row + (4 + mode) * (NB + 1)
-                ge = layered_sum(C, mr, jj, k, ingress, NB, LAYERS, False)
-                go = layered_sum(C, mr, jj + NB // 2, k, ingress, NB, LAYERS, False)
+                ge = layered_sum(C, mr, jj, k, Shape, si, NB, LAYERS, False)
+                go = layered_sum(C, mr, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
                 beta = tl.load(Beta + mode)
                 qe -= beta * ge * ge
                 qo -= beta * go * go
@@ -409,63 +508,94 @@ def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shap
                 odd_ratio = tl.full([B], 1., tl.float64)
                 binary_multiple = tl.full([B], 1., tl.float64)
                 omitted_upper = tl.full([B], -float("inf"), tl.float64)
-                for phase_index in tl.range(3, loop_unroll_factor=1):
-                    offset = (phase_index + 1) * (NB // 8)
-                    phase_weight = tl.where(phase_index == 1, tl.full([], .8, tl.float64), tl.full([], .1, tl.float64))
-                    s0, s1 = jj + offset, jj + offset + NB // 2
-                    ass = layered_sum(C, row, s0, k, ingress, NB, LAYERS, False) \
-                          + layered_sum(C, row, s1, k, ingress, NB, LAYERS, False)
-                    ps = layered_sum(C, row + NB + 1, s0, k, ingress, NB, LAYERS, False) \
-                         + layered_sum(C, row + NB + 1, s1, k, ingress, NB, LAYERS, False)
-                    ns = layered_sum(C, row + 2 * (NB + 1), s0, k, ingress, NB, LAYERS, True) \
-                         + layered_sum(C, row + 2 * (NB + 1), s1, k, ingress, NB, LAYERS, True)
+                for phase_index in tl.range(NORB, loop_unroll_factor=1):
+                    orbital=Orbit+((f*ND+di)*NORB+phase_index)*4
+                    phase=tl.load(orbital)
+                    duration_ratio=tl.load(orbital+1)
+                    logwp,logwb=tl.load(orbital+2),tl.load(orbital+3)
+                    offset=tl.floor(phase*(NB//2)+.5).to(tl.int32)
+                    sk=tl.minimum(NB//2-1,tl.maximum(1,tl.floor(k*duration_ratio+.5).to(tl.int32)))
+                    s0=jj+offset+tl.floor((k-sk).to(tl.float64)/2.).to(tl.int32)
+                    s1=s0+NB//2
+                    ass = layered_sum(C, row, s0, sk, Shape, si, NB, LAYERS, False) \
+                          + layered_sum(C, row, s1, sk, Shape, si, NB, LAYERS, False)
+                    ps = layered_sum(C, row + NB + 1, s0, sk, Shape, si, NB, LAYERS, False) \
+                         + layered_sum(C, row + NB + 1, s1, sk, Shape, si, NB, LAYERS, False)
+                    ns = layered_sum(C, row + 2 * (NB + 1), s0, sk, Shape, si, NB, LAYERS, True) \
+                         + layered_sum(C, row + 2 * (NB + 1), s1, sk, Shape, si, NB, LAYERS, True)
                     qs, qps = ns - ps * ps / c, -(pe + po) * ps / c
                     for mode in range(RANK):
                         mr = row + (4 + mode) * (NB + 1)
-                        ge = layered_sum(C, mr, jj, k, ingress, NB, LAYERS, False)
-                        go = layered_sum(C, mr, jj + NB // 2, k, ingress, NB, LAYERS, False)
-                        gs = layered_sum(C, mr, s0, k, ingress, NB, LAYERS, False) \
-                             + layered_sum(C, mr, s1, k, ingress, NB, LAYERS, False)
+                        ge = layered_sum(C, mr, jj, k, Shape, si, NB, LAYERS, False)
+                        go = layered_sum(C, mr, jj + NB // 2, k, Shape, si, NB, LAYERS, False)
+                        gs = layered_sum(C, mr, s0, sk, Shape, si, NB, LAYERS, False) \
+                             + layered_sum(C, mr, s1, sk, Shape, si, NB, LAYERS, False)
                         beta = tl.load(Beta + mode)
                         qs -= beta * gs * gs
                         qps -= beta * (ge + go) * gs
-                    raw_upper = subspace_upper(ap, ass, qp, qs, qps, rho2)
-                    upper = raw_upper + tl.load(DurationLogMass + di)
-                    if tl.max(tl.where(j < NB // 2, upper, -float("inf")), 0) >= tl.minimum(floor_p, floor_b):
-                        for ri in tl.range(5, loop_unroll_factor=1):
-                            ratio = tl.load(Parameters + 6 + ri * 3)
-                            wp = tl.load(Parameters + 7 + ri * 3)
-                            wb = tl.load(Parameters + 8 + ri * 3)
-                            aa = (ap + ratio * ass) / rho2
-                            qq = (qp + 2. * ratio * qps + ratio * ratio * qs) / rho2
-                            ep = positive_amplitude_evidence(aa, qq, tau_p) + tl.log(phase_weight * wp)
-                            eb = log_add(positive_amplitude_evidence(aa, qq, tau_b),
-                                         positive_amplitude_evidence(aa, qq, tau_d)) \
-                                 + tl.log(.25 * phase_weight * wb)
-                            lp, lb = log_add(lp, ep), log_add(lb, eb)
-                            better_component = eb > component_best
-                            sec_ratio = tl.where(better_component, ratio, sec_ratio)
-                            sec_phase = tl.where(better_component, .25 * (phase_index + 1), sec_phase)
-                            component_best = tl.maximum(component_best, eb)
+                    g0,g1,h0,h1=harmonic_pair(C,row,jj,s0,k,sk,Shape,si,NB,LAYERS,HSTART+2,True,HARMONIC)
+                    pa,pb,pq,pr,px,pbase=modulated_pair(ap,ass,qp,qs,qps,g0,g1,h0,h1,Modulation,f,di,0,rho2,ND)
+                    ba,bb,bq,br,bx,bbase=modulated_pair(ap,ass,qp,qs,qps,g0,g1,h0,h1,Modulation,f,di,1,rho2,ND)
+                    ca,cb,cq,cr,cx=astrometric_pair(C,row,jj,s0,k,sk,Shape,si,AstroNorm,NB,LAYERS,ASTART,NG,True)
+                    cu=centroid_upper(ca,cb,cq,cr,cx)
+                    pu=subspace_upper(pa,pb,pq,pr,px,1.)+pbase+logwp+cu
+                    bu=tl.maximum(subspace_upper(ba,bb,bq,br,bx,1.)+bbase,subspace_upper(pa,pb,pq,pr,px,1.)+pbase)+logwb+cu
+                    upper=tl.maximum(pu-floor_p,bu-floor_b)+tl.load(DurationLogMass+di)
+                    upper=tl.where((logwp>-float("inf"))|(logwb>-float("inf")),upper,-float("inf"))
+                    raw_upper=tl.where(logwb>-float("inf"),bu,-float("inf"))
+                    if tl.max(tl.where(j<NB//2,upper,-float("inf")),0)>=0.:
+                        for ri in tl.range(5,loop_unroll_factor=1):
+                            ratio=tl.load(Parameters+6+ri*3)
+                            wp,wb=tl.load(Parameters+7+ri*3),tl.load(Parameters+8+ri*3)
+                            cp=centroid_evidence(ca,cb,cq,cr,cx,ratio,tl.load(Parameters+28))
+                            cd=centroid_evidence(ca,cb,cq,cr,cx,ratio,tl.load(Parameters+29))
+                            ep=positive_amplitude_evidence(pa+ratio*pb,pq+2*ratio*px+ratio*ratio*pr,tau_p)+pbase+cp+tl.log(wp)+logwp
+                            if HARMONIC or NG>0:
+                                diluted=log_add(positive_amplitude_evidence(ba+ratio*bb,bq+2*ratio*bx+ratio*ratio*br,tau_d)+bbase,
+                                    positive_amplitude_evidence(pa+ratio*pb,pq+2*ratio*px+ratio*ratio*pr,tau_d)+pbase)-tl.log(tl.full([],2.,tl.float64))
+                                centerd=log_add(cp,cd)-tl.log(tl.full([],2.,tl.float64))
+                            else:
+                                diluted=positive_amplitude_evidence(ba+ratio*bb,bq+2*ratio*bx+ratio*ratio*br,tau_d)+bbase
+                                centerd=cd
+                            eb=log_add(positive_amplitude_evidence(ba+ratio*bb,bq+2*ratio*bx+ratio*ratio*br,tau_b)+bbase+cp,
+                                diluted+centerd)+tl.log(.25*wb)+logwb
+                            lp,lb=log_add(lp,ep),log_add(lb,eb)
+                            better_component=eb>component_best
+                            sec_ratio=tl.where(better_component,ratio,sec_ratio)
+                            sec_phase=tl.where(better_component,phase,sec_phase)
+                            component_best=tl.maximum(component_best,eb)
                     else:
                         omitted += 1
                         omitted_upper = tl.maximum(omitted_upper, raw_upper)
-                raw_upper = subspace_upper(ae, ao, qe, qo, qeo, rho2)
-                upper = raw_upper + tl.load(DurationLogMass + di)
-                if tl.max(tl.where(j < NB // 2, upper, -float("inf")), 0) >= floor_b:
-                    for ri in tl.range(7, loop_unroll_factor=1):
-                        ratio = tl.load(Parameters + 21 + ri)
-                        aa = (ae + ratio * ao) / rho2
-                        qq = (qe + 2. * ratio * qeo + ratio * ratio * qo) / rho2
-                        eb = log_add(positive_amplitude_evidence(aa, qq, tau_b),
-                                     positive_amplitude_evidence(aa, qq, tau_d)) + tl.log(.25 / tl.full([], 7., tl.float64))
-                        lb = log_add(lb, eb)
-                        better_component = eb > component_best
-                        sec_ratio = tl.where(better_component, 0., sec_ratio)
-                        sec_phase = tl.where(better_component, .5, sec_phase)
-                        odd_ratio = tl.where(better_component, ratio, odd_ratio)
-                        binary_multiple = tl.where(better_component, 2., binary_multiple)
-                        component_best = tl.maximum(component_best, eb)
+                g0,g1,h0,h1=harmonic_pair(C,row,jj,jj+NB//2,k,k,Shape,si,NB,LAYERS,HSTART,False,HARMONIC)
+                ba,bb,bq,br,bx,bbase=modulated_pair(ae,ao,qe,qo,qeo,g0,g1,h0,h1,Modulation,f,di,2,rho2,ND)
+                ca,cb,cq,cr,cx=astrometric_pair(C,row,jj,jj+NB//2,k,k,Shape,si,AstroNorm,NB,LAYERS,ASTART,NG,False)
+                pa,pb,pq,pr,px,pbase=modulated_pair(ae,ao,qe,qo,qeo,g0,g1,h0,h1,Modulation,f,di,3,rho2,ND)
+                alias_mass=tl.load(Alias+f*ND+di)
+                raw_upper=tl.maximum(subspace_upper(ba,bb,bq,br,bx,1.)+bbase,subspace_upper(pa,pb,pq,pr,px,1.)+pbase)+centroid_upper(ca,cb,cq,cr,cx)+alias_mass
+                upper=raw_upper+tl.load(DurationLogMass+di)
+                if tl.max(tl.where(j<NB//2,upper,-float("inf")),0)>=floor_b:
+                    for ri in tl.range(7,loop_unroll_factor=1):
+                        ratio=tl.load(Parameters+21+ri)
+                        aa=ba+ratio*bb
+                        qq=bq+2*ratio*bx+ratio*ratio*br
+                        cp=centroid_evidence(ca,cb,cq,cr,cx,ratio,tl.load(Parameters+28))
+                        cd=centroid_evidence(ca,cb,cq,cr,cx,ratio,tl.load(Parameters+29))
+                        if HARMONIC or NG>0:
+                            diluted=log_add(positive_amplitude_evidence(aa,qq,tau_d)+bbase,
+                                positive_amplitude_evidence(pa+ratio*pb,pq+2*ratio*px+ratio*ratio*pr,tau_d)+pbase)-tl.log(tl.full([],2.,tl.float64))
+                            centerd=log_add(cp,cd)-tl.log(tl.full([],2.,tl.float64))
+                        else:
+                            diluted=positive_amplitude_evidence(aa,qq,tau_d)+bbase
+                            centerd=cd
+                        eb=log_add(positive_amplitude_evidence(aa,qq,tau_b)+bbase+cp,diluted+centerd)+alias_mass+tl.log(.25/tl.full([],7.,tl.float64))
+                        lb=log_add(lb,eb)
+                        better_component=eb>component_best
+                        sec_ratio=tl.where(better_component,0.,sec_ratio)
+                        sec_phase=tl.where(better_component,.5,sec_phase)
+                        odd_ratio=tl.where(better_component,ratio,odd_ratio)
+                        binary_multiple=tl.where(better_component,2.,binary_multiple)
+                        component_best=tl.maximum(component_best,eb)
                 else:
                     omitted += 1
                     omitted_upper = tl.maximum(omitted_upper, raw_upper)
@@ -505,7 +635,7 @@ def joint_tiles(C, Beta, Period, Scale, Dur, Rho, DurationLogMass, Ingress, Shap
         key = tl.min(tl.where(merit == maximum, keys, 9223372036854775807), 0)
         lane = tl.min(tl.where((merit == maximum) & (keys == key), tl.arange(0, B), 2147483647), 0)
         take = tl.arange(0, B) == lane
-        out = Parts + ((f.to(tl.int64) * NT + tile) * 2 + selection) * 15
+        out = Parts + ((f.to(tl.int64) * NT + part_index) * 2 + selection) * 15
         tl.store(out, key.to(tl.float64))
         tl.store(out + 1, maximum)
         tl.store(out + 2, tl.sum(tl.where(take, j_snr if selection == 0 else best_signal, 0.), 0))
@@ -536,7 +666,7 @@ def joint_merge(Parts, Period, Scale, Dur, Ingress, Parameters, LogMass, Table, 
     part = Parts + ((f.to(tl.int64) * NT + tile) * 2 + selection) * 15
     lp = log_sum(tl.load(Parts + base + 11, i < NT, other=-float("inf"))) - tl.load(LogMass + f)
     lb = log_sum(tl.load(Parts + base + 12, i < NT, other=-float("inf"))) - tl.load(LogMass + f)
-    joint = tl.load(Parameters + 3) + lp - log_add(tl.load(Parameters + 5), tl.load(Parameters + 4) + lb)
+    joint = tl.load(Parameters + f * 30 + 3) + lp - log_add(tl.load(Parameters + f * 30 + 5), tl.load(Parameters + f * 30 + 4) + lb)
     # Empty periods have a finite harmless index and are removed by the host mask.
     decoded = tl.where(maximum > -float("inf"), key, 0.).to(tl.int64)
     j = decoded % (NB // 2)

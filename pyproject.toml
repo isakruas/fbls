@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tess-gpu-search"
-version = "0.2.0"
+version = "0.3.0"
 description = "CUDA float64 transit search with a Python API and command-line interface"
 readme = "README.md"
 requires-python = ">=3.10"

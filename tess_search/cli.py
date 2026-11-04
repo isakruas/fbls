@@ -38,9 +38,25 @@ def read_inputs(paths):
             part["sector"] = np.full(len(t), label) if np.ndim(label) == 0 else label
             if part["sector"].shape != t.shape:
                 raise ValueError(f"{path}: sector must be a scalar or an observation vector")
+            if "centroid" in source.files:
+                part["centroid"]=source["centroid"]
+            elif "centr1" in source.files and "centr2" in source.files:
+                part["centroid"]=np.column_stack((source["centr1"],source["centr2"]))
+            if "centroid" in part:
+                if part["centroid"].shape!=(len(t),2):
+                    raise ValueError(f"{path}: centroid must have shape (observations, 2)")
+                part["centroid_err"]=source["centroid_err"] if "centroid_err" in source.files else np.column_stack(
+                    [source[k] if k in source.files else np.full(len(t),np.nan) for k in ("centr1_err","centr2_err")])
+                if part["centroid_err"].shape!=part["centroid"].shape:
+                    raise ValueError(f"{path}: centroid_err must match centroid")
             parts.append(part)
     if len({"flux_err" in part for part in parts}) != 1:
         raise ValueError("All input files must either provide flux_err or omit it")
+    if any("centroid" in p for p in parts):
+        for part in parts:
+            for key in ("centroid","centroid_err"):
+                if key not in part:
+                    part[key]=np.full((len(part["flux"]),2),np.nan)
     return {key: np.concatenate([part[key] for part in parts]) for key in parts[0]}
 
 
@@ -111,6 +127,20 @@ def main(argv=None):
     parser.add_argument("--peak-drift-durations", type=float, default=2., help="Evidence-peak resolution in transit-duration drift units; zero disables grouping")
     parser.add_argument("--evidence-rtol", type=float, default=1e-12, help="Relative evidence omission budget; zero evaluates every component")
     parser.add_argument("--planet-log-odds-min", type=float, default=0., help="Model-odds boundary for the preferred planet list")
+    physics=parser.add_mutually_exclusive_group()
+    physics.add_argument("--extended-physics",action="store_true",default=False,help="Enable experimental astrometry and physical orbital models")
+    physics.add_argument("--no-extended-physics",action="store_false",dest="extended_physics")
+    parser.add_argument("--no-ellipsoidal",action="store_true")
+    parser.add_argument("--no-centroids",action="store_true")
+    parser.add_argument("--limb-darkening",type=_numbers,default=(.3,.2))
+    parser.add_argument("--eccentricity-nodes",type=int,default=2)
+    parser.add_argument("--periastron-nodes",type=int,default=4)
+    defaults=SearchConfig()
+    physical_names=("stellar_mass_solar","stellar_logg","stellar_teff","stellar_tmag","stellar_duration_scatter",
+        "eccentricity_max","ellipsoidal_planet_scale","ellipsoidal_binary_scale","ellipsoidal_alpha",
+        "planet_mass_scale_mj","centroid_planet_scale","centroid_binary_scale")
+    for name in physical_names:
+        parser.add_argument("--"+name.replace("_","-"),type=float,default=getattr(defaults,name))
     args = parser.parse_args(argv)
     try:
         inputs = {path.resolve() for path in args.input}
@@ -131,17 +161,23 @@ def main(argv=None):
             binary_depth_scale=args.binary_depth_scale, diluted_binary_depth_scale=args.diluted_binary_depth_scale,
             stellar_radius_solar=args.stellar_radius_solar, planet_radius_scale_rj=args.planet_radius_scale_rj,
             target_flux_fraction=args.target_flux_fraction, peak_drift_durations=args.peak_drift_durations,
-            evidence_rtol=args.evidence_rtol, planet_log_odds_min=args.planet_log_odds_min)
+            evidence_rtol=args.evidence_rtol, planet_log_odds_min=args.planet_log_odds_min,
+            extended_physics=args.extended_physics,ellipsoidal=not args.no_ellipsoidal,
+            limb_darkening=args.limb_darkening,eccentricity_nodes=args.eccentricity_nodes,
+            periastron_nodes=args.periastron_nodes,**{name:getattr(args,name) for name in physical_names})
         if not torch.cuda.is_available():
             raise RuntimeError("A CUDA-capable GPU is required")
         data = read_inputs(args.input)
+        auxiliary={} if args.no_centroids or not args.extended_physics else {key:data[key] for key in ("centroid","centroid_err") if key in data}
         if args.prepared:
             if "flux_err" not in data:
                 raise ValueError("Prepared input requires flux_err")
-            result = search_prepared(data["time_bjd"], data["flux"], data["flux_err"], config=config)
+            if auxiliary:
+                auxiliary["sector"]=_normalization_groups(data)
+            result = search_prepared(data["time_bjd"], data["flux"], data["flux_err"], config=config,**auxiliary)
         else:
             result = search_transits(data["time_bjd"], data["flux"], data.get("flux_err"),
-                                     _normalization_groups(data), config=config)
+                                     _normalization_groups(data), config=config,**auxiliary)
         report = result.to_dict()
         report["input_files"] = [str(path) for path in args.input]
         report["input_mode"] = "prepared" if args.prepared else "raw"

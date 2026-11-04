@@ -6,7 +6,7 @@ import time
 import torch
 import triton
 
-from .core import PreparedCurve, gpu64, period_grid, prepare_curve, search_curve
+from .core import PreparedCurve, gpu64, period_grid, prepare_curve, prepare_astrometry, search_curve
 from .period_kernel import evidence_peaks
 
 
@@ -49,6 +49,23 @@ class SearchConfig:
     peak_drift_durations: float = 2.
     evidence_rtol: float = 1e-12
     planet_log_odds_min: float = 0.
+    extended_physics: bool = False
+    limb_darkening: tuple[float, float] | None = (.3, .2)
+    eccentricity_nodes: int = 2
+    periastron_nodes: int = 4
+    eccentricity_max: float = .8
+    stellar_mass_solar: float | None = None
+    stellar_logg: float | None = None
+    stellar_teff: float | None = None
+    stellar_tmag: float | None = None
+    stellar_duration_scatter: float = .5
+    ellipsoidal: bool = True
+    ellipsoidal_planet_scale: float = 1e-5
+    ellipsoidal_binary_scale: float = 1e-3
+    ellipsoidal_alpha: float = 1.5
+    planet_mass_scale_mj: float = 1.
+    centroid_planet_scale: float = .001
+    centroid_binary_scale: float = .05
 
     def __post_init__(self):
         durations = tuple(sorted(set(float(d) for d in self.durations_hours)))
@@ -59,7 +76,9 @@ class SearchConfig:
                      "clip_sigma", "period_oversample", "max_fold_mib", "planet_prior", "binary_prior",
                      "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
                      "planet_radius_scale_rj", "target_flux_fraction", "peak_drift_durations",
-                     "evidence_rtol", "planet_log_odds_min"):
+                     "evidence_rtol", "planet_log_odds_min", "eccentricity_max", "stellar_duration_scatter",
+                     "ellipsoidal_planet_scale", "ellipsoidal_binary_scale", "ellipsoidal_alpha", "planet_mass_scale_mj",
+                     "centroid_planet_scale", "centroid_binary_scale"):
             value = getattr(self, name)
             if isinstance(value, bool):
                 raise ValueError("Numeric search parameters cannot be boolean")
@@ -72,6 +91,27 @@ class SearchConfig:
             object.__setattr__(self, name, value)
         if not isinstance(self.correlated_noise, bool) or not isinstance(self.model_comparison, bool):
             raise ValueError("correlated_noise and model_comparison must be boolean")
+        if not isinstance(self.extended_physics,bool) or not isinstance(self.ellipsoidal,bool):
+            raise ValueError("extended_physics and ellipsoidal must be boolean")
+        for name in ("stellar_mass_solar","stellar_logg","stellar_teff","stellar_tmag"):
+            value=getattr(self,name)
+            if value is not None:
+                if isinstance(value,bool) or not math.isfinite(float(value)):
+                    raise ValueError(f"{name} must be finite")
+                value=float(value)
+                if name in ("stellar_mass_solar","stellar_teff") and value<=0:
+                    raise ValueError(f"{name} must be positive")
+                object.__setattr__(self,name,value)
+        if self.limb_darkening is not None:
+            limb=tuple(float(x) for x in self.limb_darkening)
+            if len(limb)!=2 or any(not math.isfinite(x) for x in limb) or limb[0]<0 or limb[0]+2*limb[1]<0 or sum(limb)>=1:
+                raise ValueError("Quadratic limb coefficients must define positive monotonic intensity")
+            object.__setattr__(self,"limb_darkening",limb)
+        if not 0<self.eccentricity_max<1 or self.stellar_duration_scatter<=0:
+            raise ValueError("Invalid eccentricity support or stellar duration uncertainty")
+        if min(self.ellipsoidal_planet_scale,self.ellipsoidal_binary_scale,self.ellipsoidal_alpha,
+               self.planet_mass_scale_mj,self.centroid_planet_scale,self.centroid_binary_scale)<=0:
+            raise ValueError("Physical amplitude prior scales must be positive")
         if self.stellar_radius_solar is not None:
             if isinstance(self.stellar_radius_solar, bool):
                 raise ValueError("stellar_radius_solar must be positive")
@@ -102,6 +142,7 @@ class SearchConfig:
                 self.clip_sigma <= 0 or self.period_oversample < 1 or self.max_fold_mib <= 0):
             raise ValueError("Invalid threshold, preparation window or resource budget")
         integers = ((self.noise_degree, 0, 4), (self.shape_layers, 1, None),
+                    (self.eccentricity_nodes,0,16),(self.periastron_nodes,4,64),
                     (self.phase_oversample, 1, None), (self.max_candidates, 0, None),
                     (self.candidate_capacity, 1, None))
         for value, minimum, maximum in integers:
@@ -215,7 +256,11 @@ def _search(curve, config, preparation_seconds):
         candidate_capacity=config.candidate_capacity, max_fold_mib=config.max_fold_mib,
         comparison={key: getattr(config, key) for key in ("planet_prior", "binary_prior",
             "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
-            "stellar_radius_solar", "planet_radius_scale_rj", "target_flux_fraction", "evidence_rtol")} if config.model_comparison else None)
+            "stellar_radius_solar", "planet_radius_scale_rj", "target_flux_fraction", "evidence_rtol",
+            "extended_physics","limb_darkening","eccentricity_nodes","periastron_nodes","eccentricity_max",
+            "stellar_mass_solar","stellar_logg","stellar_teff","stellar_tmag","stellar_duration_scatter",
+            "ellipsoidal","ellipsoidal_planet_scale","ellipsoidal_binary_scale","ellipsoidal_alpha",
+            "planet_mass_scale_mj","centroid_planet_scale","centroid_binary_scale")} if config.model_comparison else None)
     if not config.model_comparison:
         extra = torch.zeros((len(table), 9), device="cuda", dtype=torch.float64)
         extra[:, -1] = 2.
@@ -232,7 +277,7 @@ def _search(curve, config, preparation_seconds):
     return TransitSearchResult(table, stats, config)
 
 
-def search_transits(time_bjd, flux, flux_err=None, sector=None, *, config=None):
+def search_transits(time_bjd, flux, flux_err=None, sector=None, *, config=None, centroid=None, centroid_err=None):
     """Normalize and detrend positive mission flux, then search on CUDA in float64."""
     config = SearchConfig() if config is None else config
     if not isinstance(config, SearchConfig):
@@ -242,13 +287,14 @@ def search_transits(time_bjd, flux, flux_err=None, sector=None, *, config=None):
     torch.cuda.synchronize()
     start = time.perf_counter()
     t, f, error, labels = _input_vectors(time_bjd, flux, flux_err, sector)
+    centers, center_error = _centroid_vectors(centroid,centroid_err,len(t))
     curve = prepare_curve(t, f, error, labels, bin_minutes=config.bin_minutes,
-                          window=config.window_days, clip_sigma=config.clip_sigma)
+                          window=config.window_days, clip_sigma=config.clip_sigma,centroid=centers,centroid_err=center_error)
     torch.cuda.synchronize()
     return _search(curve, config, time.perf_counter() - start)
 
 
-def search_prepared(time_bjd, relative_flux, flux_err, *, config=None):
+def search_prepared(time_bjd, relative_flux, flux_err, *, config=None, centroid=None, centroid_err=None, sector=None):
     """Search detrended fractional flux with baseline zero and absolute-BJD times."""
     config = SearchConfig() if config is None else config
     if not isinstance(config, SearchConfig):
@@ -259,11 +305,26 @@ def search_prepared(time_bjd, relative_flux, flux_err, *, config=None):
         raise RuntimeError("A CUDA-capable GPU is required")
     torch.cuda.synchronize()
     start = time.perf_counter()
-    t, f, error, _ = _input_vectors(time_bjd, relative_flux, flux_err)
+    t, f, error, labels = _input_vectors(time_bjd, relative_flux, flux_err,sector)
+    centers, center_error = _centroid_vectors(centroid,centroid_err,len(t))
     keep = torch.isfinite(t) & torch.isfinite(f) & torch.isfinite(error) & (error > 0)
     t, f, error = t[keep], f[keep], error[keep]
-    order = t.argsort()
+    order = t.argsort(stable=True)
+    astrometry=prepare_astrometry(t[order],centers[keep][order],center_error[keep][order] if center_error is not None else None,
+        labels[keep][order] if labels is not None else None) if centers is not None else None
     curve = PreparedCurve(t[order], f[order], error[order],
-                          {"input_mode": "prepared", "observations": len(t)})
+                          {"input_mode": "prepared", "observations": len(t)},astrometry)
     torch.cuda.synchronize()
     return _search(curve, config, time.perf_counter() - start)
+
+
+def _centroid_vectors(values, errors, count):
+    if values is None:
+        if errors is not None:
+            raise ValueError("Centroid errors require centroid coordinates")
+        return None,None
+    c=gpu64(values)
+    e=gpu64(errors) if errors is not None else None
+    if c.shape!=(count,2) or (e is not None and e.shape!=c.shape):
+        raise ValueError("Centroid coordinates and errors must have shape (observations, 2)")
+    return c,e

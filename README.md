@@ -38,6 +38,14 @@ NPZ files must contain one-dimensional arrays of equal length:
 | `flux` | Mission flux with a positive sector median |
 | `flux_err` | Optional positive per-observation errors, in flux units |
 | `sector` | Optional integer scalar or observation-vector normalization labels |
+| `centroid` | Optional `(observations, 2)` centroid coordinates in detector pixels |
+| `centroid_err` | Optional coordinate uncertainties with the same shape |
+
+The paired columns `centr1`, `centr2` are also accepted, with optional
+`centr1_err`, `centr2_err`. Missing coordinates remain missing measurements;
+they do not remove photometric samples. Mixed files without astrometry are
+filled with zero astrometric precision. When coordinate errors are absent,
+their scale is estimated from robust adjacent differences within each group.
 
 Raw preparation performs median normalization within each sector, weighted
 time binning, robust detrending and positive-outlier clipping. Negative dips
@@ -64,7 +72,8 @@ config = SearchConfig(
     threshold=7.1,
     max_candidates=10,
 )
-result = search_transits(time_bjd, flux, flux_err, sector, config=config)
+result = search_transits(time_bjd, flux, flux_err, sector, config=config,
+                         centroid=centroid_pixels, centroid_err=centroid_errors)
 peaks = result.candidates()
 signal_peaks = result.candidates(ranking="signal")
 gpu_table = result.table
@@ -97,7 +106,8 @@ odds from promoting a weak period above a strongly detected planet.
 `--save-table`; neither capped peak list guarantees complete candidate retention.
 
 The default duration bank contains 13 widths from 0.5 to approximately 7.28 hours.
-Shapes use ingress fractions 0, 0.2 and 0.45 with four nested layers. The period grid
+Shapes use ingress fractions 0, 0.2 and 0.45 with four nested layers. In extended
+mode, quadratic limb-darkened disk profiles use weighted nested intervals. The period grid
 obeys `baseline * (P_next / P - 1) <= min_duration / period_oversample`.
 Peak reporting suppresses periods within relative tolerance 0.002 and epochs
 within one selected transit duration. It does not mask observations or rerun
@@ -158,7 +168,7 @@ The fitted scales are held fixed in this conditional model. With unit scales
 the null terms cancel and the expression is the prior-weighted mean of the
 template evidence ratios.
 
-Both models allow secondary-to-primary depth ratios `[0, .01, .1, .5, 1]` at
+The earlier surrogate bank (`extended_physics=False`) allows secondary-to-primary depth ratios `[0, .01, .1, .5, 1]` at
 phases `[.25, .5, .75]` relative to the primary. Planet ratio masses are
 `[.75, .15, .08, .015, .005]`; binary ratio masses are
 `[.10, .10, .20, .25, .35]`. Phase masses are `[.1, .8, .1]` for both models.
@@ -178,7 +188,7 @@ bank is a finite approximation, not continuous eccentric-orbit inference.
 
 Default hypothesis masses are `.01` planet, `.01` binary and `.98` noise.
 For each period, evidence is integrated over the entire finite bank, with
-uniform phase and duration masses and the normalized shape masses. This gives
+uniform phase masses and normalized duration/orbit and shape masses. This gives
 the binary hypothesis independent access to every phase, duration and shape.
 The planetary MAP ephemeris is reported separately from the integrated score.
 Only ephemerides reaching the amplitude threshold qualify for reporting.
@@ -217,10 +227,87 @@ the supplied flux. Leave it at one when contamination has already been corrected
 The radius setting conditions an approximate depth prior; it does not implement
 a full stellar atmosphere or orbital population model.
 
+## Astrometry, stellar parameters and orbital geometry
+
+Version 0.3 provides the opt-in experimental setting `extended_physics=True`
+or `--extended-physics`. Its priors and candidate rankings require independent
+calibration; the earlier surrogate remains the default. The photometric and
+astrometric channels are evaluated inside each scenario before period
+marginalization. Astrometric errors are conditionally independent of flux and
+of the other coordinate. A separate constant offset for each file/sector is
+eliminated exactly in each coordinate. A signed Gaussian amplitude describes
+the centroid response to the same eclipse profile. Its default scale is
+`.001` pixel for a target source and `.05` pixel for a displaced source.
+The diluted family includes both unresolved and displaced-source components.
+These are explicit source-location priors; correlated instrumental errors
+require appropriate preparation and validation.
+
+Ellipsoidal variability uses sine/cosine coefficients at twice the orbital
+frequency with normalized Gaussian priors. The alternating `2P` binary family
+uses the corresponding fundamental frequency of the trial `P`. Both hypotheses
+allow variability. Its covariance with the eclipse templates and the observed
+window is retained through a two-dimensional Gaussian integral; independent
+SNR squares are not added. The diluted family includes weak and broad
+modulation components, so an undetected ellipsoidal signal is not a binary veto.
+
+Supply `stellar_radius_solar`, `stellar_mass_solar`, `stellar_teff` and, when
+available, `stellar_logg`. If mass is absent, radius and cgs surface gravity
+give `M = g R**2/G`. Kepler's law supplies `a/Rstar`; the duration prior is a
+broad Student-t compatibility distribution in log duration. It includes a
+transit impact-parameter reference and eccentric orbital velocity. The
+binary prior retains a broad background-source duration component, since a
+contaminating star need not share the target's density. The
+ellipsoidal reference scale is `alpha * q/(1+q) * (Rstar/a_primary)**3`, with
+`alpha=1.5`, a planet mass scale in Jupiter masses and binary mass ratio `.5`.
+Without stellar context the configurable amplitude scales remain available.
+
+Temperature supplies a reference planetary occultation ratio from photon-counted
+blackbody emission integrated over a flat 600–1000 nm response, plus reflected
+light at geometric albedo `.1`. This replaces the `.01` secondary-ratio node
+when radius, mass and temperature are available. It is a reference component
+alongside the zero and broad occultation components, not a measured atmosphere
+or a calibrated mission throughput model. `stellar_tmag` is retained as context;
+photometric precision uses supplied errors or measured scatter, rather than an
+additional magnitude penalty.
+
+`limb_darkening=(u1,u2)` specifies the quadratic intensity law. Defaults are
+`(.3,.2)`; these values are not inferred from temperature. The occulted stellar
+disk is integrated with radial Gaussian quadrature, then sampled into the
+configured staircase bank. The representative planet radius scale and stellar
+radius determine the reference radius ratio; ingress controls a reference
+impact parameter. Depth is still marginalized independently. Increase
+`shape_layers` to improve this finite-profile approximation. The secondary
+shares the reference profile; the model is not a full two-star surface-brightness
+or stellar-evolution calculation.
+
+The orbital prior includes a circular component and a continuous eccentricity /
+periastron component integrated numerically. Conjunction mean anomalies set the
+secondary phase. The central, edge-on duration ratio is
+`(1+e sin(omega))/(1-e sin(omega))`. Overlapping eclipse intervals are excluded
+and the covered prior masses are normalized. Defaults use two eccentricity
+nodes and four periastron nodes, plus the circular node. These are coarse
+quadratures: increase `eccentricity_nodes` and `periastron_nodes` and check
+convergence for inference. `eccentricity_max` defaults to `.8`. The planetary
+eccentric component has density proportional to `(1-e)**2`; the binary component
+is uniform, with half of each prior assigned to the circular component.
+
+These settings are available as CLI arguments, including `--stellar-logg`,
+`--stellar-teff`, `--limb-darkening`, `--eccentricity-nodes` and
+`--periastron-nodes`. `--no-centroids` skips astrometry;
+`--no-ellipsoidal` disables harmonic integration; `--no-extended-physics`
+selects the earlier surrogate bank. Raw preparation detrends astrometry as
+well as flux. A short biweight window can attenuate orbital modulation: use
+prepared data that preserve the harmonics, or choose an appropriate window.
+The physical kernel partitions duration and profile work across GPU programs.
+Register and spill counts are reported as `kernel_registers` and
+`kernel_spill_slots`; complex configurations can still spill registers. The
+version 0.2 timing is not a throughput measurement for these added channels.
+
 These scores are conditional on the fitted noise and discretized model bank.
 They are not calibrated planet probabilities or whole-search false-alarm rates.
-The finite surrogate does not model limb darkening, ellipsoidal modulation,
-continuous eccentricity, centroid motion, stellar temperature or magnitude.
+The finite conditional model does not infer stellar atmosphere/evolution grids,
+source catalogs, inclination-dependent eccentric conjunction corrections or
+instrumental flux/centroid cross-covariance.
 Photometrically indistinguishable binaries remain ambiguous. Injection recovery,
 binary contamination and false-alarm calibration must be measured for the
 pipeline's data distribution and candidate budget.
