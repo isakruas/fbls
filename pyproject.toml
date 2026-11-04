@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tess-gpu-search"
+version = "0.1.0"
+description = "CUDA float64 transit search with a Python API and command-line interface"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Isak Paulo de Andrade Ruas, NROLABS"}]
+dependencies = ["numpy>=1.26,<3", "torch==2.7.1", "triton==3.3.1"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+[project.scripts]
+tess-search = "tess_search.cli:main"
+
+[tool.setuptools]
+packages = ["tess_search"]
+include-package-data = false
+
