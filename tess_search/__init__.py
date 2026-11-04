@@ -1,5 +1,5 @@
 """CUDA float64 transit-search interfaces."""
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .api import SearchConfig, TransitSearchResult, search_prepared, search_transits
 from .core import NoiseModel, PreparedCurve, SearchResult, period_grid, prepare_curve, search as search_templates

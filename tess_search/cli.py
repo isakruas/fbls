@@ -92,13 +92,25 @@ def main(argv=None):
     parser.add_argument("--clip-sigma", type=float, default=4., help="Raw-input positive-outlier cutoff")
     parser.add_argument("--noise-degree", type=int, default=0, choices=range(5))
     parser.add_argument("--no-red-noise", action="store_true", help="Use unit duration-dependent noise scales")
-    parser.add_argument("--ingress-fractions", type=_numbers, default=(0., .2))
+    parser.add_argument("--ingress-fractions", type=_numbers, default=(0., .2, .45))
     parser.add_argument("--shape-layers", type=int, default=4)
     parser.add_argument("--phase-oversample", type=int, default=4)
     parser.add_argument("--period-oversample", type=float, default=3.)
     parser.add_argument("--batch", type=int, help="Maximum periods processed in a fold batch")
     parser.add_argument("--capacity", type=int, default=131072, help="Covariance candidate-buffer capacity")
     parser.add_argument("--max-fold-mib", type=float, default=128.)
+    parser.add_argument("--signal-only", action="store_true", help="Disable eclipse-model comparison")
+    parser.add_argument("--planet-prior", type=float, default=.01)
+    parser.add_argument("--binary-prior", type=float, default=.01)
+    parser.add_argument("--planet-depth-scale", type=float, default=.01, help="Half-normal fractional-depth prior scale")
+    parser.add_argument("--binary-depth-scale", type=float, default=.1)
+    parser.add_argument("--diluted-binary-depth-scale", type=float, default=.01)
+    parser.add_argument("--stellar-radius-solar", type=float, help="Condition the planet depth scale on stellar radius")
+    parser.add_argument("--planet-radius-scale-rj", type=float, default=1.)
+    parser.add_argument("--target-flux-fraction", type=float, default=1., help="Target fraction of the supplied flux before correction")
+    parser.add_argument("--peak-drift-durations", type=float, default=2., help="Evidence-peak resolution in transit-duration drift units; zero disables grouping")
+    parser.add_argument("--evidence-rtol", type=float, default=1e-12, help="Relative evidence omission budget; zero evaluates every component")
+    parser.add_argument("--planet-log-odds-min", type=float, default=0., help="Model-odds boundary for the preferred planet list")
     args = parser.parse_args(argv)
     try:
         inputs = {path.resolve() for path in args.input}
@@ -113,7 +125,13 @@ def main(argv=None):
             noise_degree=args.noise_degree, correlated_noise=not args.no_red_noise,
             ingress_fractions=args.ingress_fractions, shape_layers=args.shape_layers,
             phase_oversample=args.phase_oversample, period_oversample=args.period_oversample,
-            period_batch=args.batch, candidate_capacity=args.capacity, max_fold_mib=args.max_fold_mib)
+            period_batch=args.batch, candidate_capacity=args.capacity, max_fold_mib=args.max_fold_mib,
+            model_comparison=not args.signal_only, planet_prior=args.planet_prior,
+            binary_prior=args.binary_prior, planet_depth_scale=args.planet_depth_scale,
+            binary_depth_scale=args.binary_depth_scale, diluted_binary_depth_scale=args.diluted_binary_depth_scale,
+            stellar_radius_solar=args.stellar_radius_solar, planet_radius_scale_rj=args.planet_radius_scale_rj,
+            target_flux_fraction=args.target_flux_fraction, peak_drift_durations=args.peak_drift_durations,
+            evidence_rtol=args.evidence_rtol, planet_log_odds_min=args.planet_log_odds_min)
         if not torch.cuda.is_available():
             raise RuntimeError("A CUDA-capable GPU is required")
         data = read_inputs(args.input)

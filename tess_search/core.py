@@ -12,7 +12,7 @@ import triton
 
 from .kernels import fold_fields, scan_bounds, scan_floor, refine_modes
 from .local_kernel import refine_local_modes
-from .period_kernel import diagonal_tiles, diagonal_merge
+from .period_kernel import diagonal_tiles, diagonal_merge, fold_comparison, comparison_screen, joint_tiles, joint_merge
 
 
 def gpu64(value):
@@ -94,7 +94,7 @@ class NoiseModel:
                 group_span = t[groups[:, 1]] - t[groups[:, 0]]
         return Prepared(t, fields, mode_prefix.contiguous(), beta.contiguous(), c,
                         self.origin, self.provenance, orthogonality, support, max_support_span,
-                        group_constant, group_span)
+                        group_constant, group_span, (y * v).sum())
 
 
 @dataclass
@@ -111,6 +111,7 @@ class Prepared:
     max_support_span: float
     group_constant: torch.Tensor | None
     group_span: torch.Tensor | None
+    residual_energy: torch.Tensor | None = None
 
 
 @dataclass
@@ -332,12 +333,13 @@ def prepare_curve(time_values, flux_values, errors=None, sectors=None, bin_minut
 
 
 def search_curve(curve, periods, durations, threshold=4., noise_degree=2, correlated_noise=True,
-                 ingress_fractions=(0., 0.2), band_factor=2., **options):
+                 ingress_fractions=(0., 0.2), band_factor=2., comparison=None, **options):
     """Best template per period over a full period range for one prepared curve.
 
     Periods are searched in bands spanning at most `band_factor`; each band
-    uses durations below a quarter of its shortest period. Returns a GPU table
-    with columns (period, epoch_bjd, duration_days, score, depth) and stats.
+    uses durations below a quarter of its shortest period. The first five table
+    columns are period, epoch_bjd, duration_days, score and depth. Model
+    comparison appends evidence, binary diagnostics and selection flags.
     """
     if not math.isfinite(band_factor) or band_factor <= 1:
         raise ValueError("band_factor must be finite and greater than one")
@@ -358,17 +360,176 @@ def search_curve(curve, periods, durations, threshold=4., noise_degree=2, correl
         selected = (ps >= lo) & (ps < hi)
         chosen = ds < lo / 4
         if bool(selected.any()) and bool(chosen.any()):
-            result = search(ready, ps[selected], ds[chosen], threshold=threshold, reduce="period",
-                            ingress_fractions=ingress_fractions, noise_scale=rho[chosen], **options)
-            row = result.records
-            tables.append(torch.stack((row[:, 0], (row[:, 2] + row[:, 3] / 2) / row[:, 1] + result.origin,
-                                       row[:, 3] / row[:, 1], result.scores, result.depths), dim=1))
-            stats.append({"band": [lo, min(hi, float(ps[-1]))], **{k: v for k, v in result.statistics.items()
+            if comparison is not None:
+                table, details = compare_search(ready, ps[selected], ds[chosen], comparison,
+                    threshold=threshold, ingress_fractions=ingress_fractions,
+                    noise_scale=rho[chosen], **options)
+                tables.append(table)
+            else:
+                result = search(ready, ps[selected], ds[chosen], threshold=threshold, reduce="period",
+                                ingress_fractions=ingress_fractions, noise_scale=rho[chosen], **options)
+                row = result.records
+                tables.append(torch.stack((row[:, 0], (row[:, 2] + row[:, 3] / 2) / row[:, 1] + result.origin,
+                                           row[:, 3] / row[:, 1], result.scores, result.depths), dim=1))
+                details = result.statistics
+            stats.append({"band": [lo, min(hi, float(ps[-1]))], **{k: v for k, v in details.items()
                                                                      if k != "noise_model"}})
         lo = hi
-    table = torch.cat(tables) if tables else torch.empty((0, 5), device="cuda", dtype=torch.float64)
+    table = torch.cat(tables) if tables else torch.empty((0, 14 if comparison is not None else 5), device="cuda", dtype=torch.float64)
     return table[table[:, 0].argsort()], {"noise_model": model.provenance,
                                          "correlated_noise_factors": rho.tolist(), "bands": stats}
+
+
+def compare_search(ready, periods, durations, comparison, threshold=7.1,
+                   phase_oversample=4, ingress_fractions=(0., .2, .45), shape_layers=4,
+                   period_batch=None, candidate_capacity=131072, max_fold_mib=128, noise_scale=None):
+    """Joint planet/binary/noise search with integrated evidence and amplitude maxima.
+
+    Each local model integrates a positive eclipse depth with a half-normal
+    prior and sums normalized discrete scenario masses. Both orbital families
+    share the fitted constant baseline and the complete supplied covariance.
+    The second family models alternating primary events at twice the trial
+    period. Phase, duration and shape are marginalized independently under
+    both models. Scores are conditional period evidence ratios, not calibrated
+    astrophysical probabilities. The amplitude threshold gates reported periods.
+    """
+    start = time.perf_counter()
+    ready = ready.prepare() if isinstance(ready, NoiseModel) else ready
+    ps, ds = gpu64(periods), gpu64(durations)
+    if ps.ndim != 1 or ds.ndim != 1 or not len(ps) or not len(ds):
+        raise ValueError("Nonempty period and duration vectors required")
+    if not bool(torch.isfinite(ps).all() & (ps > 0).all() & (ps[1:] >= ps[:-1]).all()
+                & torch.isfinite(ds).all() & (ds > 0).all()):
+        raise ValueError("Finite positive periods and durations, with periods sorted, are required")
+    rho = torch.ones_like(ds) if noise_scale is None else gpu64(noise_scale)
+    if rho.shape != ds.shape or not bool(torch.isfinite(rho).all() & (rho >= 1).all()):
+        raise ValueError("Duration noise scales must be finite and at least one")
+    if ready.residual_energy is None:
+        if not bool((rho == 1).all()):
+            raise ValueError("Duration-dependent noise evidence requires residual_energy from NoiseModel.prepare")
+        duration_log_mass = torch.zeros_like(ds)
+    else:
+        duration_log_mass = -.5 * ((len(ready.time) - 1) * rho.square().log()
+                                   + ready.residual_energy / rho.square())
+        duration_log_mass -= duration_log_mass.max()
+    if (threshold < 0 or not math.isfinite(threshold) or phase_oversample < 1 or
+            shape_layers < 1 or max_fold_mib <= 0 or not ingress_fractions or
+            any(not math.isfinite(x) or not 0 <= x < .5 for x in ingress_fractions)):
+        raise ValueError("Invalid comparison bank configuration")
+    batch = 128 if period_batch is None else period_batch
+    if batch < 1:
+        raise ValueError("period_batch must be positive")
+    # Eight-cell alignment makes all quarter-phase offsets and parity exact.
+    nb = max(8, 4 * math.ceil(phase_oversample * float(ps[-1]) / float(ds.min()) / 4))
+    bins, tile, n, rank = 2 * nb, 64, len(ready.time), len(ready.beta)
+    nf = 4 + rank
+    fields = torch.cat((ready.fields, ready.prefix[:, 1:] - ready.prefix[:, :-1]), dim=0).contiguous()
+    ingress = gpu64(ingress_fractions)
+    shape_logits = torch.stack((-4. * ingress, 2. * ingress), dim=1)
+    shape_priors = (shape_logits - torch.logsumexp(shape_logits, dim=0)).contiguous()
+    p_prior, b_prior = comparison["planet_prior"], comparison["binary_prior"]
+    planet_scale = comparison["planet_depth_scale"]
+    if comparison.get("stellar_radius_solar") is not None:
+        planet_scale = (.10045 * comparison["planet_radius_scale_rj"] / comparison["stellar_radius_solar"]) ** 2
+    dilution = comparison["target_flux_fraction"]
+    planet_scale *= dilution
+    parameter_values = [planet_scale, comparison["binary_depth_scale"] * dilution,
+                        comparison["diluted_binary_depth_scale"],
+                        math.log(p_prior), math.log(b_prior), math.log(1. - p_prior - b_prior)]
+    parameter_values.extend(value for scenario in zip(
+        (0., .01, .1, .5, 1.), (.75, .15, .08, .015, .005), (.10, .10, .20, .25, .35)) for value in scenario)
+    parameter_values.extend((.25, .5, .75, 1., 4. / 3., 2., 4.))
+    parameters = gpu64(parameter_values)
+    if not bool(torch.isfinite(parameters).all() & (parameters[:3] > 0).all()):
+        raise ValueError("Depth priors must remain positive and finite after stellar conditioning")
+    tiles = triton.cdiv(nb, tile)
+    output, batches, integrated_periods, omitted_groups, total_groups = [], 0, 0, 0, 0
+    cursor = 0
+    while cursor < len(ps):
+        stop = min(cursor + batch, len(ps))
+        pp = ps[cursor:stop]
+        expected_bytes = len(pp) * (nf * (2 * bins + 1) + tiles * 2 * 15 + 28) * 8
+        if expected_bytes > max_fold_mib * 2**20:
+            if len(pp) == 1:
+                raise MemoryError("One comparison fold exceeds max_fold_mib; increase the explicit budget")
+            batch = max(1, len(pp) // 2)
+            continue
+        scales = (nb / pp).contiguous()
+        folded = torch.zeros((len(pp), nf, bins), device="cuda", dtype=torch.float64)
+        fold_comparison[(len(pp), nf, triton.cdiv(n, 256))](
+            ready.time, fields, scales, folded, n, bins, nf, 256, enable_fp_fusion=False)
+        cumulative = torch.cat((torch.zeros((len(pp), nf, 1), device="cuda", dtype=torch.float64),
+                                folded.cumsum(2)), dim=2).contiguous()
+        del folded
+        screen = torch.empty((len(pp), tiles, 4), device="cuda", dtype=torch.float64)
+        comparison_screen[(tiles, len(pp))](cumulative, ready.beta, scales, ds, rho, duration_log_mass, ingress,
+            shape_priors, parameters, ready.baseline_norm, screen, n, bins, nf, rank, len(ds), len(ingress_fractions),
+            shape_layers, tiles, tile, num_warps=4, enable_fp_fusion=False)
+        # Every phase/shape is integrated for qualifying periods; no local evidence is truncated.
+        eligible = screen[:, :, 0].amax(1) >= threshold * (1. - 1e-12)
+        rtol = comparison.get("evidence_rtol", 1e-12)
+        margin = math.log(rtol) - math.log(4 * nb * len(ds) * len(ingress_fractions)) if rtol else -math.inf
+        winner = screen[:, :, 1].argmax(1)
+        pilot_key = screen[torch.arange(len(pp), device="cuda"), winner, 3][eligible]
+        floors = torch.cat((screen[:, :, 1:3].amax(1)[eligible] + margin, pilot_key[:, None]), dim=1).contiguous()
+        cumulative, pp, scales = cumulative[eligible].contiguous(), pp[eligible].contiguous(), scales[eligible].contiguous()
+        integrated_periods += len(pp)
+        cursor, batches = stop, batches + 1
+        if not len(pp):
+            continue
+        durations_in_bank = torch.floor(ds[None, :] * scales[:, None] + .5).clamp_min(1) < nb // 4
+        log_mass = (math.log(nb) + torch.logsumexp(torch.where(durations_in_bank,
+                    duration_log_mass[None, :], -torch.inf), dim=1)).contiguous()
+        # Full scenario integration at one incumbent tightens bounds without restricting the search bank.
+        pilot = torch.empty((len(pp), 1, 2, 15), device="cuda", dtype=torch.float64)
+        joint_tiles[(1, len(pp))](cumulative, ready.beta, pp, scales, ds, rho, duration_log_mass, ingress,
+            shape_priors, ready.baseline_norm, parameters, floors, pilot, n, bins, nf, rank,
+            len(ds), len(ingress_fractions), shape_layers, 1, 1, threshold, True,
+            num_warps=1, enable_fp_fusion=False)
+        floors[:, :2] = torch.maximum(floors[:, :2], pilot[:, 0, 0, 11:13] + margin)
+        del pilot
+        parts = torch.empty((len(pp), tiles, 2, 15), device="cuda", dtype=torch.float64)
+        table = torch.empty((len(pp), 2, 14), device="cuda", dtype=torch.float64)
+        joint_tiles[(tiles, len(pp))](cumulative, ready.beta, pp, scales, ds, rho, duration_log_mass, ingress,
+            shape_priors, ready.baseline_norm, parameters, floors, parts, n, bins, nf, rank,
+            len(ds), len(ingress_fractions), shape_layers, tiles, tile, threshold,
+            num_warps=4, enable_fp_fusion=False)
+        omitted_groups += int(parts[:, :, 0, 13].sum())
+        total_groups += len(pp) * tiles * len(ds) * len(ingress_fractions) * 4
+        joint_merge[(len(pp), 2)](parts, pp, scales, ds, ingress, parameters, log_mass, table, tiles,
+            len(ds), bins, triton.next_power_of_2(tiles), num_warps=4, enable_fp_fusion=False)
+        hit = torch.isfinite(table[:, :, 3])
+        # Identical maxima are represented once with both selection bits set.
+        same = (table[:, 0, :5] == table[:, 1, :5]).all(1) & (table[:, 0, 12] == table[:, 1, 12]) & hit.all(1)
+        table[same, 0, 13] = 3.
+        hit[same, 1] = False
+        selected = table[hit]
+        selected[:, 1] += ready.origin
+        output.append(selected)
+        del cumulative, parts, table
+    result = torch.cat(output) if output else torch.empty((0, 14), device="cuda", dtype=torch.float64)
+    torch.cuda.synchronize()
+    stats = {"backend": "joint_eclipse_evidence", "rank": rank, "periods": len(ps),
+             "phase_bins_per_period": nb, "batches": batches,
+             "periods_evidence_integrated": integrated_periods,
+             "evidence_rtol": comparison.get("evidence_rtol", 1e-12),
+             "evidence_groups_omitted": omitted_groups, "evidence_groups_total": total_groups,
+             "templates_scanned": len(ps) * nb * len(ds) * len(ingress_fractions),
+             "threshold": threshold, "seconds_search": time.perf_counter() - start,
+             "effective_planet_depth_scale": planet_scale,
+             "score_definition": "log(pi_planet Z_planet(P) / (pi_noise Z_noise + pi_binary Z_binary(P)))",
+             "ephemeris_integration": "uniform phase and duration masses; normalized shape masses",
+             "duration_noise_null_log_mass": duration_log_mass.tolist(),
+             "evidence_model": "positive-depth linear eclipse surrogate, conditional on fitted noise",
+             "binary_period_multipliers": [1, 2], "secondary_phases": [.25, .5, .75],
+             "secondary_ratios": [0., .01, .1, .5, 1.],
+             "planet_secondary_weights": [.75, .15, .08, .015, .005],
+             "binary_secondary_weights": [.10, .10, .20, .25, .35],
+             "secondary_phase_weights": [.1, .8, .1],
+             "alternating_depth_ratios": [.25, .5, .75, 1., 4. / 3., 2., 4.],
+             "binary_family_weights": [.5, .5], "binary_scale_weights": [.5, .5],
+             "shape_log_masses": shape_priors.tolist()}
+    return result, stats
 
 
 def search(model, periods, durations, threshold=7.1, phase_oversample=4,

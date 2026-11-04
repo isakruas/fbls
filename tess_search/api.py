@@ -4,12 +4,17 @@ import math
 import time
 
 import torch
+import triton
 
 from .core import PreparedCurve, gpu64, period_grid, prepare_curve, search_curve
+from .period_kernel import evidence_peaks
 
 
 DEFAULT_DURATIONS_HOURS = tuple(round(.5 * 1.25 ** i, 6) for i in range(13))
-TABLE_COLUMNS = ("period_days", "epoch_bjd", "duration_days", "snr", "depth")
+TABLE_COLUMNS = ("period_days", "epoch_bjd", "duration_days", "snr", "depth",
+                 "planet_log_odds", "log_bf_planet_noise", "log_bf_binary_noise",
+                 "binary_secondary_ratio", "binary_secondary_phase", "binary_odd_even_ratio",
+                 "binary_period_days", "ingress_fraction", "selection_flags")
 
 
 @dataclass(frozen=True)
@@ -24,7 +29,7 @@ class SearchConfig:
     clip_sigma: float = 4.
     noise_degree: int = 0
     correlated_noise: bool = True
-    ingress_fractions: tuple[float, ...] = (0., .2)
+    ingress_fractions: tuple[float, ...] = (0., .2, .45)
     shape_layers: int = 4
     phase_oversample: int = 4
     period_oversample: float = 3.
@@ -32,6 +37,18 @@ class SearchConfig:
     period_batch: int | None = None
     candidate_capacity: int = 131072
     max_fold_mib: float = 128.
+    model_comparison: bool = True
+    planet_prior: float = .01
+    binary_prior: float = .01
+    planet_depth_scale: float = .01
+    binary_depth_scale: float = .1
+    diluted_binary_depth_scale: float = .01
+    stellar_radius_solar: float | None = None
+    planet_radius_scale_rj: float = 1.
+    target_flux_fraction: float = 1.
+    peak_drift_durations: float = 2.
+    evidence_rtol: float = 1e-12
+    planet_log_odds_min: float = 0.
 
     def __post_init__(self):
         durations = tuple(sorted(set(float(d) for d in self.durations_hours)))
@@ -39,7 +56,10 @@ class SearchConfig:
         object.__setattr__(self, "durations_hours", durations)
         object.__setattr__(self, "ingress_fractions", ingress)
         for name in ("period_min", "period_max", "threshold", "bin_minutes", "window_days",
-                     "clip_sigma", "period_oversample", "max_fold_mib"):
+                     "clip_sigma", "period_oversample", "max_fold_mib", "planet_prior", "binary_prior",
+                     "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
+                     "planet_radius_scale_rj", "target_flux_fraction", "peak_drift_durations",
+                     "evidence_rtol", "planet_log_odds_min"):
             value = getattr(self, name)
             if isinstance(value, bool):
                 raise ValueError("Numeric search parameters cannot be boolean")
@@ -50,8 +70,26 @@ class SearchConfig:
             if not math.isfinite(value):
                 raise ValueError("Search parameters must be finite")
             object.__setattr__(self, name, value)
-        if not isinstance(self.correlated_noise, bool):
-            raise ValueError("correlated_noise must be boolean")
+        if not isinstance(self.correlated_noise, bool) or not isinstance(self.model_comparison, bool):
+            raise ValueError("correlated_noise and model_comparison must be boolean")
+        if self.stellar_radius_solar is not None:
+            if isinstance(self.stellar_radius_solar, bool):
+                raise ValueError("stellar_radius_solar must be positive")
+            radius = float(self.stellar_radius_solar)
+            if not math.isfinite(radius) or radius <= 0:
+                raise ValueError("stellar_radius_solar must be positive and finite")
+            object.__setattr__(self, "stellar_radius_solar", radius)
+        if not (0 < self.planet_prior < 1 and 0 < self.binary_prior < 1
+                and self.planet_prior + self.binary_prior < 1):
+            raise ValueError("Positive planet/binary prior masses must sum to less than one")
+        if self.peak_drift_durations < 0:
+            raise ValueError("peak_drift_durations must be nonnegative")
+        if not 0 <= self.evidence_rtol < 1:
+            raise ValueError("evidence_rtol must be in [0, 1)")
+        if not (0 < self.target_flux_fraction <= 1 and self.planet_radius_scale_rj > 0
+                and self.planet_depth_scale > 0 and self.binary_depth_scale > 0
+                and self.diluted_binary_depth_scale > 0):
+            raise ValueError("Depth scales and planet radius must be positive; target_flux_fraction must be in (0, 1]")
         if not 0 < self.period_min < self.period_max:
             raise ValueError("Require 0 < period_min < period_max")
         if not durations or any(not math.isfinite(d) or d <= 0 for d in durations):
@@ -76,36 +114,70 @@ class SearchConfig:
 
 @dataclass
 class TransitSearchResult:
-    """GPU float64 table with one row per qualifying period and scalar run metadata."""
+    """GPU float64 period maxima for independent model and amplitude rankings."""
     table: torch.Tensor
     statistics: dict
     config: SearchConfig
 
-    def candidates(self, limit=None):
-        """Select descending-score peaks with period/epoch suppression on the GPU."""
+    def candidates(self, limit=None, *, ranking="planet"):
+        """Prioritize model-preferred evidence peaks or independently select amplitude peaks."""
         limit = self.config.max_candidates if limit is None else limit
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise ValueError("Candidate limit must be a nonnegative integer")
-        remaining = self.table[:, 3].clone()
+        if ranking not in ("planet", "signal"):
+            raise ValueError("ranking must be 'planet' or 'signal'")
+        joint = ranking == "planet" and self.config.model_comparison
+        flag = 1 if joint else 2
+        eligible = (self.table[:, 13].long() & flag) != 0
+        if joint and self.config.peak_drift_durations and self.statistics.get("baseline_days") and len(self.table):
+            rows = torch.nonzero(eligible).flatten()
+            bank = self.table[rows].contiguous()
+            if len(bank):
+                baseline = self.statistics["baseline_days"]
+                maximum_duration = min(max(self.config.durations_hours) / 24, self.config.period_max / 4)
+                radius = self.config.peak_drift_durations * maximum_duration / baseline
+                count = self.statistics["periods_tested"]
+                step = math.log(self.config.period_max / self.config.period_min) / max(1, count - 1)
+                window = len(bank) - 1 if radius >= 1 else min(len(bank) - 1, math.ceil(-math.log1p(-radius) / step) + 2)
+                peaks = torch.empty(len(bank), device=self.table.device, dtype=torch.bool)
+                evidence_peaks[(len(bank),)](bank, peaks, len(bank), radius, window,
+                                             min(128, triton.next_power_of_2(2 * window + 1)),
+                                             num_warps=4, enable_fp_fusion=False)
+                eligible[rows] = peaks
+        preferred = eligible & (self.table[:, 5] >= self.config.planet_log_odds_min) if joint else eligible
+        remaining = torch.where(preferred, self.table[:, 6 if joint else 3], -torch.inf)
+        fallback = torch.where(eligible & ~preferred, self.table[:, 5], -torch.inf)
         output = []
         for _ in range(min(limit, len(self.table))):
             i = int(remaining.argmax())
             if not math.isfinite(float(remaining[i])):
-                break
-            p, epoch, duration, score, depth = [float(x) for x in self.table[i]]
-            output.append({"period_days": p, "epoch_bjd": epoch, "duration_hours": 24 * duration,
-                           "snr": score, "depth": depth, "depth_ppm": 1e6 * depth})
+                if not joint or not bool(torch.isfinite(fallback).any()):
+                    break
+                remaining, fallback = fallback, torch.full_like(fallback, -torch.inf)
+                i = int(remaining.argmax())
+            row = [float(x) for x in self.table[i]]
+            p, epoch, duration, score, depth = row[:5]
+            candidate = {"period_days": p, "epoch_bjd": epoch, "duration_hours": 24 * duration,
+                         "snr": score, "depth": depth, "depth_ppm": 1e6 * depth}
+            if self.config.model_comparison:
+                candidate.update({name: value if math.isfinite(value) else None
+                                  for name, value in zip(TABLE_COLUMNS[5:], row[5:])})
+                candidate["model_preferred"] = row[5] >= self.config.planet_log_odds_min
+                candidate["binary_diagnostics_complete"] = all(math.isfinite(v) for v in row[8:12])
+            output.append(candidate)
             phase = (self.table[:, 1] - epoch + p / 2).remainder(p) - p / 2
             duplicate = ((self.table[:, 0] / p - 1).abs() <= .002) & (phase.abs() <= duration)
             remaining[duplicate] = -torch.inf
+            fallback[duplicate] = -torch.inf
             remaining[i] = -torch.inf
         return output
 
     def to_dict(self):
         """Convert selected candidates and scalar metadata into a JSON-compatible mapping."""
         from . import __version__
-        return {"schema_version": 1, "software_version": __version__, "config": asdict(self.config),
-                "statistics": self.statistics, "candidates": self.candidates()}
+        return {"schema_version": 2, "software_version": __version__, "config": asdict(self.config),
+                "statistics": self.statistics, "table_columns": TABLE_COLUMNS,
+                "candidates": self.candidates(), "signal_candidates": self.candidates(ranking="signal")}
 
 
 def _input_vectors(time_values, flux_values, errors=None, sectors=None):
@@ -140,12 +212,20 @@ def _search(curve, config, preparation_seconds):
         noise_degree=config.noise_degree, correlated_noise=config.correlated_noise,
         ingress_fractions=config.ingress_fractions, shape_layers=config.shape_layers,
         phase_oversample=config.phase_oversample, period_batch=config.period_batch,
-        candidate_capacity=config.candidate_capacity, max_fold_mib=config.max_fold_mib)
+        candidate_capacity=config.candidate_capacity, max_fold_mib=config.max_fold_mib,
+        comparison={key: getattr(config, key) for key in ("planet_prior", "binary_prior",
+            "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
+            "stellar_radius_solar", "planet_radius_scale_rj", "target_flux_fraction", "evidence_rtol")} if config.model_comparison else None)
+    if not config.model_comparison:
+        extra = torch.zeros((len(table), 9), device="cuda", dtype=torch.float64)
+        extra[:, -1] = 2.
+        table = torch.cat((table, extra), dim=1)
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - start
     stats = {"device": torch.cuda.get_device_name(curve.time.device), "dtype": "float64",
              "observations": len(curve.time), "baseline_days": baseline,
-             "periods_tested": len(periods), "qualifying_periods": len(table),
+             "periods_tested": len(periods), "qualifying_periods": len(torch.unique(table[:, 0])),
+             "retained_ephemerides": len(table),
              "seconds_preparation": preparation_seconds, "seconds_search": elapsed,
              "seconds_total": preparation_seconds + elapsed,
              "preparation": curve.provenance, **details}
