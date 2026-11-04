@@ -26,9 +26,50 @@ def shape_sums(row, j, k, outer_a, outer_p, outer_w, ingress, Factors, si,
 
 
 @triton.jit
-def tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, f, tile,
+def rank_template(a, hp, norm, rho, baseline, valid, key, di, best, best_key, best_duration,
+                  bad, sensitive, unsafe, tiny, huge, guard, FAST: tl.constexpr):
+    """Update the running per-lane maximum with one template; return the template's merit."""
+    if FAST:
+        # Rank by a^2/[rho^2(c*n-hp^2)] in float32; the exact float64 value is
+        # recomputed for the winner, and tiles with near ties or abnormal
+        # ranges are rescanned exactly.
+        cn = (baseline * norm).to(tl.float32)
+        hp32 = hp.to(tl.float32)
+        qq = (rho * rho).to(tl.float32) * (cn - hp32 * hp32)
+        a32 = a.to(tl.float32)
+        merit = a32 * a32 / qq
+        safe = ((cn > 0.) & (qq >= .001 * cn) & (merit >= tiny) & (merit <= huge))
+        unsafe |= valid & ~safe
+        near = (best > 0.) & (tl.abs(merit - best) <= guard * tl.maximum(merit, best))
+        far_better = merit > best * (1. + 4. * guard)
+        sensitive = tl.where(valid & safe & far_better, False, sensitive | (valid & safe & near))
+        better = valid & safe & ((merit > best) | ((merit == best) & (key < best_key)))
+        best = tl.where(better, merit, best)
+        merit = tl.where(valid & safe, merit, -float("inf"))
+    else:
+        d = hp * hp / baseline
+        q = norm - d
+        bad |= valid & (q <= 0.)
+        candidate = (a / rho) / tl.sqrt(tl.maximum(q, 1.e-300))
+        merit = tl.where(valid & (q > 0.) & (candidate < float("inf")), candidate, -float("inf"))
+        better = (merit > best) | ((merit == best) & (key < best_key))
+        best = tl.where(better, merit, best)
+    best_key = tl.where(better, key, best_key)
+    best_duration = tl.where(better, di, best_duration)
+    return best, best_key, best_duration, bad, sensitive, unsafe, merit
+
+
+@triton.jit
+def tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, Gate, f, tile,
                 N, NB, ND: tl.constexpr, NS: tl.constexpr,
                 LAYERS: tl.constexpr, B: tl.constexpr, FAST: tl.constexpr):
+    """Best template of one phase tile over durations and shapes.
+
+    Shape index 0 must be the box (ingress 0). The remaining shapes are only
+    evaluated when at least one lane's box statistic reaches `Gate`: a box
+    recovers at least ~87% of the amplitude of any bank shape, so a gate well
+    below the reporting threshold never removes a reportable template.
+    """
     j = tile * B + tl.arange(0, B)
     jj = tl.minimum(j, NB - 1)
     scale = tl.load(Scale + f)
@@ -45,10 +86,13 @@ def tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, f, tile,
         tiny = tl.full([], 1.e-30, tl.float32)
         huge = tl.full([], 1.e30, tl.float32)
         guard = tl.full([], 1.e-5, tl.float32)
+        # The float32 merit is score^2 / baseline_norm.
+        gate = (Gate * Gate / baseline).to(tl.float32)
     else:
         tiny = tl.full([], 1.e-280, tl.float64)
         huge = tl.full([], 1.e280, tl.float64)
         guard = tl.full([], 1.e-10, tl.float64)
+        gate = Gate + tl.zeros([], tl.float64)
     for di in range(ND):
         raw_k = tl.maximum(1, tl.floor(tl.load(Dur + di) * scale + .5).to(tl.int32))
         k = tl.minimum(raw_k, NB // 2)
@@ -58,39 +102,22 @@ def tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, f, tile,
         outer_p = interval_sum(row, 1, jj, k)
         outer_w = interval_sum(row, 2, jj, k)
         usable = (j < NB) & (raw_k < NB // 2) & (count >= 3) & (count <= N - 3)
-        for si in tl.static_range(NS):
-            ingress = tl.load(Ingress + si)
-            a, hp, norm = shape_sums(row, jj, k, outer_a, outer_p, outer_w,
-                                     ingress, Factors, si, LAYERS)
-            valid = usable & (a > 0.)
-            key = (si * (NB + 1) + k.to(tl.int64)) * (NB + 1) + jj
-            if FAST:
-                # Rank by a^2/[rho^2(c*n-hp^2)] in float32; the exact float64
-                # value is recomputed for the winner, and tiles with near ties
-                # or abnormal ranges are rescanned exactly.
-                cn = (baseline * norm).to(tl.float32)
-                hp32 = hp.to(tl.float32)
-                qq = (rho * rho).to(tl.float32) * (cn - hp32 * hp32)
-                a32 = a.to(tl.float32)
-                ratio = a32 * a32 / qq
-                safe = ((cn > 0.) & (qq >= .001 * cn) & (ratio >= tiny) & (ratio <= huge))
-                unsafe |= valid & ~safe
-                near = (best > 0.) & (tl.abs(ratio - best) <= guard * tl.maximum(ratio, best))
-                far_better = ratio > best * (1. + 4. * guard)
-                sensitive = tl.where(valid & safe & far_better, False,
-                                     sensitive | (valid & safe & near))
-                better = valid & safe & ((ratio > best) | ((ratio == best) & (key < best_key)))
-                best = tl.where(better, ratio, best)
-            else:
-                d = hp * hp / baseline
-                q = norm - d
-                bad |= valid & (q <= 0.)
-                candidate = (a / rho) / tl.sqrt(tl.maximum(q, 1.e-300))
-                value = tl.where(valid & (q > 0.) & (candidate < float("inf")), candidate, -float("inf"))
-                better = (value > best) | ((value == best) & (key < best_key))
-                best = tl.where(better, value, best)
-            best_key = tl.where(better, key, best_key)
-            best_duration = tl.where(better, di, best_duration)
+        valid = usable & (outer_a > 0.)
+        key = k.to(tl.int64) * (NB + 1) + jj
+        best, best_key, best_duration, bad, sensitive, unsafe, merit = rank_template(
+            outer_a, outer_p, outer_w, rho, baseline, valid, key, di, best, best_key, best_duration,
+            bad, sensitive, unsafe, tiny, huge, guard, FAST)
+        passing = tl.sum((valid & (merit >= gate)).to(tl.int32), 0)
+        if passing > 0:
+            for si in tl.static_range(1, NS):
+                ingress = tl.load(Ingress + si)
+                a, hp, norm = shape_sums(row, jj, k, outer_a, outer_p, outer_w,
+                                         ingress, Factors, si, LAYERS)
+                valid = usable & (a > 0.)
+                key = (si * (NB + 1) + k.to(tl.int64)) * (NB + 1) + jj
+                best, best_key, best_duration, bad, sensitive, unsafe, merit = rank_template(
+                    a, hp, norm, rho, baseline, valid, key, di, best, best_key, best_duration,
+                    bad, sensitive, unsafe, tiny, huge, guard, FAST)
     if FAST:
         # Empty tiles still need a harmless decodable key; they are not returned.
         best_key = tl.where(best > 0., best_key, (NB + 1) + jj)
@@ -108,16 +135,16 @@ def tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, f, tile,
 
 
 @triton.jit
-def diagonal_tiles(C, Period, Scale, Dur, Rho, Ingress, Factors, BaseNorm, Parts, Keys, Invalid, Retries,
+def diagonal_tiles(C, Period, Scale, Dur, Rho, Ingress, Factors, BaseNorm, Gate, Parts, Keys, Invalid, Retries,
                    N, NB, ND: tl.constexpr,
                    NS: tl.constexpr, LAYERS: tl.constexpr, NT: tl.constexpr,
                    B: tl.constexpr):
     tile = tl.program_id(0)
     f = tl.program_id(1)
-    key, di, value, retry, bad = tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm,
+    key, di, value, retry, bad = tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, Gate,
                                             f, tile, N, NB, ND, NS, LAYERS, B, True)
     if retry:
-        key, di, value, _, bad = tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm,
+        key, di, value, _, bad = tile_choice(C, Scale, Dur, Rho, Ingress, Factors, BaseNorm, Gate,
                                             f, tile, N, NB, ND, NS, LAYERS, B, False)
     # Reconstruct only the winner instead of carrying its fields per phase.
     phase = key % (NB + 1)

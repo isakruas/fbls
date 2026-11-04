@@ -748,7 +748,7 @@ def compare_search(ready, periods, durations, comparison, threshold=7.1,
     return result, stats
 
 
-def _coarse_scan(ready, ps, ds, rho, nb, ingress, shape_factors, ns, shape_layers, tile, warps, batch, max_fold_mib):
+def _coarse_scan(ready, ps, ds, rho, nb, ingress, shape_factors, ns, shape_layers, tile, warps, batch, max_fold_mib, gate):
     """Best per-period amplitude statistic on a coarse phase grid (fused diagonal path)."""
     n = len(ready.time)
     scores = torch.full((len(ps),), -torch.inf, device="cuda", dtype=torch.float64)
@@ -773,7 +773,7 @@ def _coarse_scan(ready, ps, ds, rho, nb, ingress, shape_factors, ns, shape_layer
         score = torch.empty(len(pp), device="cuda", dtype=torch.float64)
         depth = torch.empty_like(score)
         diagonal_tiles[(tiles, len(pp))](cumulative, pp, scales, ds, rho, ingress, shape_factors, ready.baseline_norm,
-                                         parts, keys, invalid, retries, n, nb, len(ds), ns, shape_layers, tiles, tile,
+                                         gate, parts, keys, invalid, retries, n, nb, len(ds), ns, shape_layers, tiles, tile,
                                          num_warps=warps, enable_fp_fusion=False)
         diagonal_merge[(len(pp),)](parts, keys, pp, scales, records, score, depth, tiles,
                                    triton.next_power_of_2(tiles), num_warps=4, enable_fp_fusion=False)
@@ -786,7 +786,7 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
            ingress_fractions=(0., 0.2), shape_layers=4, period_batch=None,
            candidate_capacity=131072, adaptive=True, numerical_guard=1e-10,
            max_fold_mib=128, max_cycles=32768, reduce="all", noise_scale=None,
-           prescan_factor=1, prescan_fraction=.7):
+           prescan_factor=1, prescan_fraction=.7, shape_gate_fraction=.6):
     """Search the finite bank; peak extraction is separate.
 
     reduce="all" returns every bank template above threshold. reduce="period"
@@ -812,12 +812,22 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
     default pair (2, 0.7) retains every template able to reach the threshold
     up to noise fluctuations below 5% of its amplitude. Returned rows are
     always full-grid results.
+
+    With the box (ingress 0) first in ingress_fractions, trapezoidal shapes are
+    evaluated only in phase tiles where some box statistic reaches
+    shape_gate_fraction * threshold. A box recovers at least ~87% of the
+    amplitude of every bank shape, so the default 0.6 keeps every reportable
+    template; 0 evaluates all shapes everywhere.
     """
     if reduce not in ("all", "period"):
         raise ValueError("reduce must be 'all' or 'period'")
     if (isinstance(prescan_factor, bool) or not isinstance(prescan_factor, int) or prescan_factor < 1
             or not 0 < prescan_fraction <= 1):
         raise ValueError("prescan_factor must be a positive integer and prescan_fraction in (0, 1]")
+    if not 0 <= shape_gate_fraction <= 1:
+        raise ValueError("shape_gate_fraction must be in [0, 1]")
+    # Non-box shapes are evaluated only where the box reaches the gate; the box must be the first shape.
+    shape_gate = shape_gate_fraction * threshold if ingress_fractions and ingress_fractions[0] == 0. else 0.
     period_tile, period_warps = SCAN_TILE, SCAN_WARPS
     per_period = reduce == "period"
     if period_batch is None:
@@ -870,6 +880,7 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
              "backend": "fused_diagonal" if fused_diagonal else "covariance_modes",
              "phase_tile_winners": 0,
              "exact_tile_retries": 0,
+             "shape_gate": shape_gate,
              "prescan_factor": prescan_factor if prescan else 1,
              "prescan_fraction": prescan_fraction if prescan else None,
              "prescan_periods": len(ps), "prescan_survivors": len(ps),
@@ -889,7 +900,7 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
     if prescan:
         coarse = _coarse_scan(ready, ps, ds, rho, nb // prescan_factor, ingress_tensor, shape_factors,
                               len(ingress_fractions), shape_layers, period_tile, period_warps, period_batch,
-                              max_fold_mib)
+                              max_fold_mib, shape_gate)
         keep = torch.isfinite(coarse) & (coarse >= prescan_fraction * threshold)
         ps = ps[keep].contiguous()
         stats["prescan_survivors"] = len(ps)
@@ -934,8 +945,8 @@ def search(model, periods, durations, threshold=7.1, phase_oversample=4,
             score = torch.empty(len(pp), device="cuda", dtype=torch.float64)
             depth = torch.empty_like(score)
             compiled_scan = diagonal_tiles[(tiles, len(pp))](
-                cumulative, pp, scales, ds, rho, ingress_tensor, shape_factors, ready.baseline_norm, parts, keys, invalid, retries,
-                n, nb, len(ds), len(ingress_fractions), shape_layers, tiles, period_tile,
+                cumulative, pp, scales, ds, rho, ingress_tensor, shape_factors, ready.baseline_norm, shape_gate,
+                parts, keys, invalid, retries, n, nb, len(ds), len(ingress_fractions), shape_layers, tiles, period_tile,
                 num_warps=period_warps, enable_fp_fusion=False)
             stats["scan_registers"] = compiled_scan.n_regs
             stats["scan_spills"] = compiled_scan.n_spills
