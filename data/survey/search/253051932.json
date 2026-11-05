@@ -1,5 +1,5 @@
 {
- "tic": 154092672,
+ "tic": 253051932,
  "config": {
   "period_min": 0.5,
   "period_max": 100.0,
@@ -84,43 +84,24 @@
   "centroid_planet_scale": 0.001,
   "centroid_binary_scale": 0.05
  },
- "baseline_days": 1004.1260749669746,
- "statistics": {
-  "observations": 24366,
-  "baseline_days": 1003.7149748150259,
-  "periods_tested": 1151564,
-  "resolved_peaks": 1,
-  "single_events": 0,
-  "seconds_total": 513.2064565439941
- },
- "peaks": [
-  {
-   "period_days": 0.6389865876056297,
-   "epoch_bjd": 2459391.1422645794,
-   "duration_hours": 2.9553129676760372,
-   "snr": 7.985097907650029,
-   "snr_folded": 7.985097907650029,
-   "snr_without_strongest_event": 6.855592822827764,
-   "depth": 0.00013930253371873382,
-   "depth_ppm": 139.30253371873383,
-   "events": 269,
-   "family": 0,
-   "pass": 1,
-   "planet_log_odds": 2.3915657849650254,
-   "log_bf_planet_noise": 13.37289835088782,
-   "log_bf_binary_noise": 10.979663566038077,
-   "binary_secondary_ratio": null,
-   "binary_secondary_phase": null,
-   "binary_odd_even_ratio": null,
-   "binary_period_days": null,
-   "ingress_fraction": 0.45,
-   "evidence_epoch_bjd": 2459391.141137335,
-   "evidence_duration_hours": 2.9681957617809895,
-   "model_preferred": true,
-   "binary_diagnostics_complete": false
-  }
+ "baseline_days": 1494.622505884152,
+ "sectors": [
+  22,
+  48,
+  49,
+  75,
+  76
  ],
+ "statistics": {
+  "observations": 13087,
+  "baseline_days": 1494.215566126164,
+  "periods_tested": 1714399,
+  "resolved_peaks": 0,
+  "single_events": 0,
+  "seconds_total": 239.73024598200573
+ },
+ "peaks": [],
  "single_events": [],
- "seconds": 604.9634794169979,
- "processed_utc": "2026-11-05T21:57:22.651979+00:00"
+ "seconds": 239.74906521500088,
+ "processed_utc": "2026-11-05T23:17:03.040204+00:00"
 }

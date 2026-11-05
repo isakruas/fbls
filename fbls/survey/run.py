@@ -381,13 +381,12 @@ def refine_folder(public, tic, today, kind="refine"):
 
 
 def searched_sectors(root, tic):
-    """Sectors the survey searched: recorded in the search file, or the most recent ones on disk."""
-    from .star import SEARCH_SECTORS
+    """Sectors the survey searched: recorded in the search file, or the search window of the files on disk."""
+    from .star import search_window
     recorded = (read(root, "search", tic) or {}).get("sectors")
     if recorded:
         return recorded
-    files = sorted(Path(root, "curves", str(tic)).glob("sector-*.npz"), key=lambda f: int(f.stem.split("-")[1]))
-    return [int(f.stem.split("-")[1]) for f in files[-SEARCH_SECTORS:]]
+    return search_window(int(f.stem.split("-")[1]) for f in Path(root, "curves", str(tic)).glob("sector-*.npz"))
 
 
 def available_sectors(tic):

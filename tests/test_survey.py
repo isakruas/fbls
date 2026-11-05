@@ -123,6 +123,17 @@ class FunnelTest(unittest.TestCase):
 
 
 
+class WindowTest(unittest.TestCase):
+    def test_search_window_prefers_the_shortest_span_then_the_most_recent(self):
+        from fbls.survey.star import search_window
+        self.assertEqual(search_window([3, 1, 2]), [1, 2, 3])
+        self.assertEqual(search_window(range(1, 9)), list(range(1, 9)))
+        self.assertEqual(search_window([1, 2, 3, 4, 5, 6, 7, 8, 40]), list(range(1, 9)))
+        self.assertEqual(search_window([1, 2, 3, 4, 30, 31, 32, 33, 34, 35, 36, 37, 80]), list(range(30, 38)))
+        self.assertEqual(search_window([1, 2, 3, 4, 5, 6, 7, 8, 20, 21, 22, 23, 24, 25, 26, 27]), list(range(20, 28)))
+        self.assertEqual(search_window([5, 6, 7], 2), [6, 7])
+
+
 class RefineTest(unittest.TestCase):
     def test_same_signal_accepts_the_period_its_harmonics_and_the_phase(self):
         from fbls.survey.run import same_signal

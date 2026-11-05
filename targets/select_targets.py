@@ -47,8 +47,7 @@ TCE_INDEX = "https://archive.stsci.edu/tess/bulk_downloads/bulk_downloads_tce.ht
 TCE_FILE = re.compile(r"/missions/tess/catalogs/tce/[^\"]+_dvr-tcestats\.csv")
 TIC_COLUMNS = "ID,ra,dec,Tmag,Teff,rad,mass,logg,d,contratio,objType,lumclass,disposition,duplicate_id"
 SECTOR_DAYS = 27.4
-# Sectors searched per star: the most recent ones. Eight sectors hold two transits of any period up to 100 days.
-SEARCH_SECTORS = 8
+from fbls.survey.star import SEARCH_SECTORS, search_window
 QUOTA = {"A": 500, "B": 350, "C": 150}
 
 
@@ -286,7 +285,7 @@ def command_select(args):
             excluded_rows.append({"tic_id": t, "reason": f"contratio {contamination:.3f}", "n_sectors": len(sectors)})
             continue
         run = longest_run(sectors.keys())
-        chosen = sorted(sectors)[-SEARCH_SECTORS:]
+        chosen = search_window(sectors)
         starts = sorted(datetime.fromisoformat(v[2]) for v in sectors.values())
         baseline = (starts[-1] - starts[0]).days + SECTOR_DAYS
         n = len(sectors)
@@ -369,7 +368,7 @@ def command_select(args):
                             "contamination": "contratio <= 0.2 when present", "sectors": ">= 2 SPOC 120 s sectors",
                             "priority": {"A": "8 <= Tmag < 10 and >= 4 sectors", "B": "10 <= Tmag <= 12 and >= 3 sectors", "C": ">= 2 sectors"},
                             "ordering": f"seeded shuffle within priority (seed {args.seed})",
-                            "search_window": f"at most {SEARCH_SECTORS} most recent sectors",
+                            "search_window": f"the {SEARCH_SECTORS} sectors spanning the shortest time (most recent window on ties)",
                             "quota": QUOTA},
     }
     (OUT / "catalog_sources.json").write_text(json.dumps(sources, indent=2) + "\n")
@@ -380,7 +379,7 @@ def command_select(args):
     lines += ["", "| Priority | Available | Selected |", "|---|---:|---:|"]
     lines += [f"| {p} | {counts[f'available priority {p}']} | {taken[p]} |" for p in ("A", "B", "C")]
     lines += ["", f"Selected: {len(selected)} stars, {sum(c['n_search_sectors'] for c in selected)} sector products "
-              f"(at most {SEARCH_SECTORS} most recent sectors), "
+              f"(the {SEARCH_SECTORS} sectors spanning the shortest time), "
               f"~{sum(c['estimated_download_mb'] for c in selected) / 1024:.1f} GB; pilot batch: {len(pilot)} stars.", "",
               "Limitations:", *[f"- {x}" for x in sources["limitations"]]]
     (OUT / "selection_report.md").write_text("\n".join(lines) + "\n")

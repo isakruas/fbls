@@ -1,6 +1,6 @@
 """Blind recovery of catalogued planets over a labeled star group.
 
-Runs the detector on every star of the group (the eight most recent sectors), then
+Runs the detector on every star of the group (the eight most contiguous sectors), then
 matches the catalog planets of each star to the reported peaks by transit times:
 the candidate's predicted transits must coincide, within one duration, with the
 catalog transits sampled in the data; a period that disagrees is recorded as

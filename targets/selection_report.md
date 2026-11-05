@@ -1,4 +1,4 @@
-# Target selection report (2026-11-05T02:49:40.305947+00:00)
+# Target selection report (2026-11-05T23:34:48.772130+00:00)
 
 Stars with SPOC 120 s light curves in 107 sector manifests: 592556
 
@@ -26,7 +26,7 @@ Stars with SPOC 120 s light curves in 107 sector manifests: 592556
 | B | 30950 | 350 |
 | C | 77939 | 150 |
 
-Selected: 1000 stars, 4865 sector products (at most 8 most recent sectors), ~9.5 GB; pilot batch: 10 stars.
+Selected: 1000 stars, 4865 sector products (the 8 sectors spanning the shortest time), ~9.5 GB; pilot batch: 10 stars.
 
 Limitations:
 - TOI/CTOI/planet/TCE/EB catalogs are the local snapshots listed in catalog_snapshot; a star absent from them may still have been searched by SPOC, QLP or published work.

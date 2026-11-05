@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-11-05T02:49:40.305947+00:00",
+  "generated_utc": "2026-11-05T23:34:48.772130+00:00",
   "manifests": {
     "sectors": 107,
     "url_pattern": "https://archive.stsci.edu/missions/tess/download_scripts/sector/tesscurl_sector_N_lc.sh"
@@ -54,7 +54,7 @@
       "C": ">= 2 sectors"
     },
     "ordering": "seeded shuffle within priority (seed 20261105)",
-    "search_window": "at most 8 most recent sectors",
+    "search_window": "the 8 sectors spanning the shortest time (most recent window on ties)",
     "quota": {
       "A": 500,
       "B": 350,

@@ -5,16 +5,27 @@ from pathlib import Path
 import numpy as np
 
 
-# Sectors searched per star: the most recent ones. Eight sectors hold two transits of any period up to 100 days.
+# Sectors searched per star: the most contiguous ones. Eight sectors hold two transits of any period
+# up to 100 days; the period grid grows with the time span, so the window with the shortest span wins.
 SEARCH_SECTORS = 8
 
 
+def search_window(sectors, count=SEARCH_SECTORS):
+    """The `count` sectors spanning the shortest time (most recent window on ties), or all of them."""
+    sectors = sorted(sectors)
+    if len(sectors) <= count:
+        return sectors
+    windows = [sectors[i:i + count] for i in range(len(sectors) - count + 1)]
+    return min(windows, key=lambda w: (w[-1] - w[0], -w[-1]))
+
+
 def load_star(root, tic, sectors=SEARCH_SECTORS):
-    """The most recent `sectors` sectors of a star (None: every sector): time, flux, flux_err,
-    centroids, sector labels, metadata."""
+    """The search window of a star (`sectors` most contiguous sectors; None: every sector): time,
+    flux, flux_err, centroids, sector labels, metadata."""
     folder = Path(root) / "curves" / str(tic)
-    files = sorted(folder.glob("sector-*.npz"), key=lambda p: int(p.stem.split("-")[1]))
-    files = files if sectors is None else files[-sectors:]
+    files = {int(p.stem.split("-")[1]): p for p in folder.glob("sector-*.npz")}
+    chosen = sorted(files) if sectors is None else search_window(files, sectors)
+    files = [files[k] for k in chosen]
     if not files:
         raise FileNotFoundError(f"no light curves for TIC {tic}")
     arrays = {k: [] for k in ("time_bjd", "flux", "flux_err", "centr1", "centr2", "sector")}
