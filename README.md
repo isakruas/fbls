@@ -35,6 +35,6 @@ without the observations of accepted peaks, two sampled events and a veto on
 single dominant events; accepted peaks are masked and the search repeats up to
 three times. A planet/binary/noise evidence ranks the strongest peaks, and an
 unfolded scan reports single events. Full description: `docs/method.md`;
-flowchart: `docs/pipeline.mmd`; agent rules: `AGENTS.md`.
+flowchart: `docs/pipeline.mmd`.
 
 Author: Isak Paulo de Andrade Ruas, NROLABS.
