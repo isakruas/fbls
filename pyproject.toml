@@ -16,6 +16,10 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Astronomy",
 ]
 
+[project.optional-dependencies]
+targets = ["astropy>=6,<9", "lightkurve>=2.5,<3"]
+dev = ["pyflakes>=3"]
+
 [project.scripts]
 tess-search = "tess_search.cli:main"
 

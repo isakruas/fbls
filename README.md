@@ -9,11 +9,15 @@ and an NVIDIA GPU. Python 3.10 or newer is required.
 
 ## Install and execute
 
-Install CUDA-enabled PyTorch for the host before installing this package:
+Create the repository's own environment, install CUDA-enabled PyTorch for the
+host, then the package (the `targets` extra adds astropy and lightkurve for the
+download tools, `dev` adds pyflakes):
 
 ```bash
-python -m pip install /path/to/tess-gpu-search
-tess-search --input curve.npz --output detections.json --save-table periods.npz
+python3 -m venv .venv
+.venv/bin/python -m pip install 'torch==2.7.1' --index-url https://download.pytorch.org/whl/cu128
+.venv/bin/python -m pip install -e '.[targets,dev]'
+.venv/bin/tess-search --input curve.npz --output detections.json --save-table periods.npz
 ```
 
 The module entry point is equivalent:

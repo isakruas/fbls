@@ -88,7 +88,7 @@ CTOI columns and the cross-match rules.
 ## Workflows
 
 ```bash
-PY=/path/to/venv/python           # CUDA PyTorch 2.7.1, Triton 3.3.1, numpy; astropy+lightkurve for targets/download.py
+PY=.venv/bin/python               # created with: python3 -m venv .venv; torch==2.7.1 from the cu128 index; pip install -e '.[targets,dev]'
 $PY -m unittest discover -s tests
 $PY -m pyflakes tess_search tests targets
 $PY -m tess_search --input data/curves/<tic>/sector-*.npz --pmax 100 --output out.json
