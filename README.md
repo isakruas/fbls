@@ -1,6 +1,6 @@
 # tess-gpu-search
 
-CUDA float64 transit search for TESS light curves, with the survey layer that
+CUDA transit search for TESS light curves, with the survey layer that
 vets candidates and writes ExoFOP CTOI rows. Linux, NVIDIA GPU, Python 3.10+.
 
 ## Install
