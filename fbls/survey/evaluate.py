@@ -212,7 +212,6 @@ def main():
     parser.add_argument("--pmax", type=float, default=100.)
     parser.add_argument("--workers", type=int, default=1, help="Concurrent processes sharing the GPU")
     parser.add_argument("--shard", type=int, default=0)
-    parser.add_argument("--prescan-factor", type=int, default=1, help="Coarse period grid factor of the prescan (1 = exhaustive)")
     parser.add_argument("--report-only", action="store_true")
     args = parser.parse_args()
     folder = args.root / "evaluation" / args.name
@@ -228,16 +227,14 @@ def main():
     if args.workers > 1 and args.shard == 0 and "--shard" not in sys.argv:
         children = [subprocess.Popen([sys.executable, "-m", "fbls.survey.evaluate", "--group", str(args.group), "--name", args.name,
                                       "--root", str(args.root), "--snapshots", str(args.snapshots), "--pmax", str(args.pmax),
-                                      "--workers", str(args.workers), "--shard", str(k), "--prescan-factor", str(args.prescan_factor)])
-                    for k in range(args.workers)]
+                                      "--workers", str(args.workers), "--shard", str(k)]) for k in range(args.workers)]
         for child in children:
             child.wait()
         report = summarize(folder)
         print(json.dumps(report["counts"], indent=1))
         print("missed planets:", len(report["missed_planets"]))
         return
-    config = SearchConfig(period_max=args.pmax, durations_hours=tuple(round(.5 * 1.25 ** i, 6) for i in range(19)),
-                          prescan_factor=args.prescan_factor)
+    config = SearchConfig(period_max=args.pmax, durations_hours=tuple(round(.5 * 1.25 ** i, 6) for i in range(19)))
     mine = [t for i, t in enumerate(tics) if i % args.workers == args.shard and not (folder / f"{t}.json").exists()]
     for n, tic in enumerate(mine, 1):
         started = time.perf_counter()
