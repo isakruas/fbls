@@ -5,8 +5,9 @@
   vet      catalog cross-match, duplicates and vetting of every peak  -> data/survey/vetting/<tic>.json
   pixel    difference-image test of the signals that passed vetting   -> data/survey/pixel/<tic>.json
   fpp      TRICERATOPS for passing signals that are not catalogued    -> data/survey/fpp/<tic>.json
-  refine   every sector of each CTOI star: search, vetting, pixel,
-           FPP and figures on the full baseline                      -> public/YYYY-MM-DD/refine/<tic>/
+  refine   every sector of each CTOI star (and of each inconclusive
+           star with further sectors): search, vetting, pixel, FPP
+           and figures on the full baseline                          -> public/YYYY-MM-DD/refine/<tic>/, inconclusive/<tic>/
   publish  tiers, candidate table and ExoFOP CTOI rows                -> public/candidates.csv, ctoi.csv (cumulative) and
            public/YYYY-MM-DD/ (stars first published that day, with the figures of its CTOI rows)
 
@@ -370,12 +371,20 @@ def event_title(e):
     return f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  {m['transits']} transits  {e['tier']}"
 
 
-def refine_folder(public, tic, today):
-    """The refine folder of a star: an earlier day's if it exists, otherwise today's."""
+def refine_folder(public, tic, today, kind="refine"):
+    """The folder of a star's refinement (`refine` for CTOI stars, `inconclusive` for the others):
+    an earlier day's if it exists, otherwise today's."""
     for day in sorted(Path(public).glob("*-*-*")):
-        if (day / "refine" / str(tic) / "ctoi.json").exists():
-            return day / "refine" / str(tic)
-    return Path(public) / today / "refine" / str(tic)
+        if (day / kind / str(tic) / "ctoi.json").exists():
+            return day / kind / str(tic)
+    return Path(public) / today / kind / str(tic)
+
+
+def available_sectors(tic):
+    """Sectors with a SPOC 120 s light curve of the star, from the local MAST sector manifests."""
+    sys.path.insert(0, str(ROOT / "targets"))
+    from select_targets import products
+    return sorted(products().get(int(tic), {}))
 
 
 def same_signal(event, peak):
@@ -440,30 +449,46 @@ def refine_star(tic, peaks, root, snapshots, folder, config, author):
 
 
 def refine(tics, root, snapshots, public, author, config):
-    """Refine every star with a CTOI row, once."""
+    """Refine, once, every star with a CTOI row and every star with an inconclusive uncatalogued
+    periodic signal that has sectors beyond the ones the survey searched."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     _, ctoi = candidate_rows(tics, root, author)
-    done = 0
-    for tic, group in ctoi.items():
-        folder = refine_folder(public, tic, today)
+    groups = {("refine", tic): [e["peak"] for e, _ in group] for tic, group in ctoi.items()}
+    for tic in tics:
+        peaks = [e["peak"] for e in assemble(tic, root) if e["search"] == "periodic" and "metrics" in e
+                 and e.get("known") is None and e["tier"].startswith("inconclusive")]
+        if peaks and tic not in ctoi:
+            groups[("inconclusive", tic)] = peaks
+    done = skipped = 0
+    for (kind, tic), peaks in groups.items():
+        folder = refine_folder(public, tic, today, kind)
         if (folder / "ctoi.json").exists():
             continue
+        if kind == "inconclusive":
+            searched = read(root, "search", tic).get("sectors") or []
+            extra = [x for x in available_sectors(tic) if x not in searched]
+            if not extra:
+                skipped += 1
+                continue
         started = time.perf_counter()
-        out = refine_star(tic, [e["peak"] for e, _ in group], root, snapshots, folder, config, author)
+        out = refine_star(tic, peaks, root, snapshots, folder, config, author)
         done += 1
-        print(f"refine TIC {tic} {time.perf_counter() - started:.0f}s sectors {out['sectors']}: "
+        print(f"{kind} TIC {tic} {time.perf_counter() - started:.0f}s sectors {out['sectors']}: "
               + "; ".join(f"P={c['survey_period_days']:.3f} -> {c['outcome']}" + (f", {c['tier']}" if "tier" in c else "")
                           for c in out["candidates"]), flush=True)
-    print(f"refine: {len(ctoi)} candidate stars, {done} refined now")
+    print(f"refine: {len(ctoi)} candidate stars, {len(groups) - len(ctoi)} inconclusive stars, "
+          f"{done} refined now, {skipped} inconclusive without further sectors")
 
 
 def refined_rows(public, tic):
-    """CTOI rows of a refined star: those of its surviving candidates, or [] when none survived."""
+    """CTOI rows of a refined star (CTOI or inconclusive refinement): those of its surviving or
+    promoted candidates, [] when none survived, None when the star was not refined."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    out = read_file(refine_folder(public, tic, today) / "ctoi.json")
-    if out is None:
-        return None
-    return [c["ctoi"] for c in out["candidates"] if "ctoi" in c]
+    for kind in ("refine", "inconclusive"):
+        out = read_file(refine_folder(public, tic, today, kind) / "ctoi.json")
+        if out is not None:
+            return [c["ctoi"] for c in out["candidates"] if "ctoi" in c]
+    return None
 
 
 def publish(tics, root, public, author):
@@ -478,10 +503,12 @@ def publish(tics, root, public, author):
     public.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows, ctoi = candidate_rows(tics, root, author)
-    for tic in list(ctoi):
+    for tic in rows:
         refined = refined_rows(public, tic)
         if refined is not None:
             ctoi[tic] = [(None, row) for row in refined]
+        if tic in ctoi and not ctoi[tic]:
+            del ctoi[tic]
     order = lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0))
     everything = sorted((r for group in rows.values() for r in group), key=order)
     if everything:
