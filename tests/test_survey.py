@@ -123,6 +123,18 @@ class FunnelTest(unittest.TestCase):
 
 
 
+class RefineTest(unittest.TestCase):
+    def test_same_signal_accepts_the_period_its_harmonics_and_the_phase(self):
+        from fbls.survey.run import same_signal
+        peak = {"period_days": 10., "epoch_bjd": 2459000., "duration_hours": 3.}
+        event = lambda p, e: {"peak": {"period_days": p, "epoch_bjd": e, "duration_hours": 3.}}
+        self.assertTrue(same_signal(event(10.02, 2459000.05), peak))
+        self.assertTrue(same_signal(event(20., 2459010.), peak))
+        self.assertTrue(same_signal(event(5., 2459005.), peak))
+        self.assertFalse(same_signal(event(10., 2459002.), peak))
+        self.assertFalse(same_signal(event(13., 2459000.), peak))
+
+
 class FigureTest(unittest.TestCase):
     def test_candidate_figures_are_written(self):
         import tempfile

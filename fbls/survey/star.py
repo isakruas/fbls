@@ -9,10 +9,12 @@ import numpy as np
 SEARCH_SECTORS = 8
 
 
-def load_star(root, tic):
-    """The most recent SEARCH_SECTORS sectors of a star: time, flux, flux_err, centroids, sector labels, metadata."""
+def load_star(root, tic, sectors=SEARCH_SECTORS):
+    """The most recent `sectors` sectors of a star (None: every sector): time, flux, flux_err,
+    centroids, sector labels, metadata."""
     folder = Path(root) / "curves" / str(tic)
-    files = sorted(folder.glob("sector-*.npz"), key=lambda p: int(p.stem.split("-")[1]))[-SEARCH_SECTORS:]
+    files = sorted(folder.glob("sector-*.npz"), key=lambda p: int(p.stem.split("-")[1]))
+    files = files if sectors is None else files[-sectors:]
     if not files:
         raise FileNotFoundError(f"no light curves for TIC {tic}")
     arrays = {k: [] for k in ("time_bjd", "flux", "flux_err", "centr1", "centr2", "sector")}

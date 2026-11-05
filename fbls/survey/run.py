@@ -5,6 +5,8 @@
   vet      catalog cross-match, duplicates and vetting of every peak  -> data/survey/vetting/<tic>.json
   pixel    difference-image test of the signals that passed vetting   -> data/survey/pixel/<tic>.json
   fpp      TRICERATOPS for passing signals that are not catalogued    -> data/survey/fpp/<tic>.json
+  refine   every sector of each CTOI star: search, vetting, pixel,
+           FPP and figures on the full baseline                      -> public/YYYY-MM-DD/refine/<tic>/
   publish  tiers, candidate table and ExoFOP CTOI rows                -> public/candidates.csv, ctoi.csv (cumulative) and
            public/YYYY-MM-DD/ (stars first published that day, with the figures of its CTOI rows)
 
@@ -15,7 +17,7 @@ existing output. Catalog information is used only after the search.
 Usage:
   fbls-survey search --targets targets/targets_download.csv --workers 4
   fbls-survey vet --targets targets/targets_download.csv
-  fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... ; fbls-survey publish --targets ...
+  fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... ; fbls-survey refine --targets ... ; fbls-survey publish --targets ...
 """
 import argparse
 import copy
@@ -33,7 +35,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 AUTHOR = "Isak Paulo de Andrade Ruas"
 TIER_ORDER = ("strong", "candidate", "inconclusive", "rejected", "duplicate")
-STAGES = ("search", "vet", "pixel", "fpp", "publish")
+STAGES = ("search", "vet", "pixel", "fpp", "refine", "publish")
 FOLDERS = {"search": "survey/search", "vet": "survey/vetting", "pixel": "survey/pixel", "fpp": "survey/fpp"}
 
 
@@ -51,16 +53,24 @@ def json_safe(value):
     return value
 
 
-def read(root, stage, tic):
-    path = Path(root) / FOLDERS[stage] / f"{tic}.json"
+def read_file(path):
+    path = Path(path)
     return json.loads(path.read_text()) if path.exists() else None
 
 
-def write(root, stage, tic, payload):
-    folder = Path(root) / FOLDERS[stage]
-    folder.mkdir(parents=True, exist_ok=True)
+def write_file(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(payload, processed_utc=datetime.now(timezone.utc).isoformat())
-    (folder / f"{tic}.json").write_text(json.dumps(json_safe(payload), indent=1) + "\n")
+    path.write_text(json.dumps(json_safe(payload), indent=1) + "\n")
+
+
+def read(root, stage, tic):
+    return read_file(Path(root) / FOLDERS[stage] / f"{tic}.json")
+
+
+def write(root, stage, tic, payload):
+    write_file(Path(root) / FOLDERS[stage] / f"{tic}.json", payload)
 
 
 def search_config(stored=None, pmax=100.):
@@ -137,18 +147,18 @@ def residuals_path(root, tic):
     return Path(root) / FOLDERS["search"] / f"{tic}.npz"
 
 
-def save_residuals(root, tic, star, config, peaks):
+def save_residuals(path, star, config, peaks):
     """Detrended residuals of the families the peaks use, so the later stages need no GPU."""
     residuals = detrended(star, config)
     used = sorted({family_index(residuals, p) for p in peaks})
     arrays = {f"family_{i}": residuals[i][2].astype(np.float32) for i in used}
     arrays["bounds"] = np.array([[residuals[i][0], residuals[i][1]] for i in used])
-    residuals_path(root, tic).parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(residuals_path(root, tic), **arrays)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, **arrays)
 
 
-def load_residuals(root, tic):
-    with np.load(residuals_path(root, tic)) as data:
+def load_residuals(path):
+    with np.load(path) as data:
         bounds = data["bounds"]
         keys = [k for k in data.files if k.startswith("family_")]
         return [(float(lo), float(hi), data[k].astype(float)) for (lo, hi), k in zip(bounds, keys)]
@@ -161,18 +171,19 @@ def folded(star, residuals, peak, masks):
     return fold(star["time_bjd"], corrected, star["sector"], peak["period_days"], peak["epoch_bjd"], peak["duration_hours"], masks)
 
 
-def search_star(tic, root, config):
+def search_star(tic, root, config, star=None, residuals_file=None):
     import torch
     from fbls import search_transits
     from fbls.core import gpu64
     from .star import load_star
-    star = load_star(root, tic)
+    star = star or load_star(root, tic)
     result = search_transits(gpu64(star["time_bjd"]), gpu64(star["flux"]), gpu64(star["flux_err"]),
                              torch.as_tensor(star["sector"], device="cuda").long(), config=config)
     peaks = result.candidates(ranking="signal")
     if peaks:
-        save_residuals(root, tic, star, result.config, peaks)
+        save_residuals(residuals_file or residuals_path(root, tic), star, result.config, peaks)
     return {"tic": int(tic), "config": result.config.__dict__, "baseline_days": float(star["time_bjd"][-1] - star["time_bjd"][0]),
+            "sectors": sorted(int(x) for x in set(star["sector"])),
             "statistics": {k: v for k, v in result.statistics.items()
                            if k in ("observations", "baseline_days", "periods_tested", "resolved_peaks", "single_events", "seconds_total")},
             "peaks": peaks, "single_events": result.single_events}
@@ -181,18 +192,18 @@ def search_star(tic, root, config):
 def complete_residuals(tic, root, search):
     """Residual file of a star searched before residuals were saved: detrending only, no new search."""
     from .star import load_star
-    save_residuals(root, tic, load_star(root, tic), search_config(search["config"]), search["peaks"])
+    save_residuals(residuals_path(root, tic), load_star(root, tic), search_config(search["config"]), search["peaks"])
 
 
-def vet_star(tic, root, snapshots, search):
+def vet_star(tic, root, snapshots, search, star=None, residuals_file=None):
     from .star import load_star
     from .catalog import known_by_star, match_known, match_single, known_masks
     from .vetting import measure
     peaks = search["peaks"]
     if not peaks and not search["single_events"]:
         return {"tic": int(tic), "baseline_days": search["baseline_days"], "events": []}
-    star = load_star(root, tic)
-    residuals = load_residuals(root, tic) if peaks else []
+    star = star or load_star(root, tic)
+    residuals = load_residuals(residuals_file or residuals_path(root, tic)) if peaks else []
     known = known_by_star(str(snapshots)).get(int(tic), [])
     parents = [related_peak(peak, peaks[:i]) for i, peak in enumerate(peaks)]
     events = []
@@ -234,10 +245,10 @@ def passing(event, pixel=None):
     return True
 
 
-def pixel_star(tic, root, vetting):
+def pixel_star(tic, root, vetting, star=None):
     from .star import load_star
     from .pixels import pixel_test
-    star = load_star(root, tic)
+    star = star or load_star(root, tic)
     out = {}
     for event in vetting["events"]:
         if passing(event):
@@ -249,14 +260,14 @@ def pixel_star(tic, root, vetting):
     return {"tic": int(tic), "events": out}
 
 
-def fpp_star(tic, root, search, vetting, pixel):
+def fpp_star(tic, root, search, vetting, pixel, star=None, residuals_file=None):
     from .star import load_star
     from .fpp import fpp_job
     out = {}
     todo = [e for e in vetting["events"] if e.get("known") is None and passing(e, pixel)]
     if todo:
-        star = load_star(root, tic)
-        residuals = load_residuals(root, tic)
+        star = star or load_star(root, tic)
+        residuals = load_residuals(residuals_file or residuals_path(root, tic))
         for event in todo:
             prep = folded(star, residuals, event["peak"], [tuple(m) for m in event["masks"]])
             out[str(event["id"])] = fpp_job(star, prep, event["metrics"], root)
@@ -275,9 +286,14 @@ def period_maxima(star, config):
 
 
 def assemble(tic, root):
-    """Final events of one star from the stage files: pixel result applied, FPP attached, tier set."""
+    """Final events of one star from the survey stage files."""
+    return assemble_from(read(root, "vet", tic), read(root, "pixel", tic), read(root, "fpp", tic))
+
+
+def assemble_from(vetting, pixel, fpp):
+    """Final events: pixel result applied, FPP attached, tier set."""
     from .pixels import apply_pixel_test
-    vetting, pixel, fpp = read(root, "vet", tic), read(root, "pixel", tic) or {}, read(root, "fpp", tic) or {}
+    pixel, fpp = pixel or {}, fpp or {}
     if vetting is None:
         return []
     events = []
@@ -339,19 +355,133 @@ def published_before(public, today):
     return seen
 
 
+def figures_for(e, star, residuals, maxima, title, folder, root):
+    from .figures import candidate_figures, pixel_figure
+    from .pixels import sector_images
+    prep = folded(star, residuals, e["peak"], [tuple(m) for m in e["masks"]])
+    candidate_figures(prep, e["metrics"], title, folder, maxima)
+    if any(d.get("used") for d in (e["metrics"].get("pixel_test") or {}).get("sectors", [])):
+        p = e["peak"]
+        pixel_figure(sector_images(star, p["period_days"], p["epoch_bjd"], p["duration_hours"], root), title, folder)
+
+
+def event_title(e):
+    m = e["metrics"]
+    return f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  {m['transits']} transits  {e['tier']}"
+
+
+def refine_folder(public, tic, today):
+    """The refine folder of a star: an earlier day's if it exists, otherwise today's."""
+    for day in sorted(Path(public).glob("*-*-*")):
+        if (day / "refine" / str(tic) / "ctoi.json").exists():
+            return day / "refine" / str(tic)
+    return Path(public) / today / "refine" / str(tic)
+
+
+def same_signal(event, peak):
+    """The refined event that is the survey peak: same period (or a harmonic) and the same transit phase."""
+    from .catalog import wrap
+    p0, p1 = peak["period_days"], event["peak"]["period_days"]
+    d = max(peak["duration_hours"], event["peak"]["duration_hours"]) / 24
+    for ratio in (1, 2, .5):
+        if abs(p1 / (p0 * ratio) - 1) < .01 and abs(wrap(event["peak"]["epoch_bjd"] - peak["epoch_bjd"], min(p0, p1))) < d:
+            return True
+    return False
+
+
+def refine_star(tic, peaks, root, snapshots, folder, config, author):
+    """Every sector of the star: download, search, vetting, pixel test, FPP and figures, each step
+    skipped when its file is already in `folder`. Ends with `ctoi.json`: the refined CTOI row of each
+    survey candidate that survives, or the reason it did not."""
+    from .star import load_star
+    from .ctoi import ctoi_row
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    if not (folder / "download.json").exists():
+        result = subprocess.run([sys.executable, str(ROOT / "targets" / "download.py"), "--root", str(root), "--tic", str(tic)],
+                                capture_output=True, text=True)
+        write_file(folder / "download.json", {"tic": tic, "returncode": result.returncode, "log": result.stdout[-2000:]})
+    star = load_star(root, tic, sectors=None)
+    residuals_file = folder / "search.npz"
+    search = read_file(folder / "search.json")
+    if search is None:
+        search = search_star(tic, root, config, star, residuals_file)
+        write_file(folder / "search.json", search)
+    vetting = read_file(folder / "vetting.json")
+    if vetting is None:
+        vetting = vet_star(tic, root, snapshots, search, star, residuals_file)
+        write_file(folder / "vetting.json", vetting)
+    pixel = read_file(folder / "pixel.json")
+    if pixel is None:
+        pixel = pixel_star(tic, root, vetting, star)
+        write_file(folder / "pixel.json", pixel)
+    fpp = read_file(folder / "fpp.json")
+    if fpp is None:
+        fpp = fpp_star(tic, root, search, vetting, pixel, star, residuals_file)
+        write_file(folder / "fpp.json", fpp)
+    events = assemble_from(vetting, pixel, fpp)
+    residuals = load_residuals(residuals_file) if search["peaks"] else []
+    maxima = period_maxima(star, search_config(search["config"])) if search["peaks"] else None
+    out = {"tic": tic, "sectors": search.get("sectors"), "baseline_days": search["baseline_days"], "candidates": []}
+    for peak in peaks:
+        found = next((e for e in events if e["search"] == "periodic" and "metrics" in e and same_signal(e, peak)), None)
+        entry = {"survey_period_days": peak["period_days"], "survey_snr": peak["snr"]}
+        if found is None:
+            entry["outcome"] = "not recovered on the full baseline"
+        else:
+            entry.update(outcome="recovered", tier=found["tier"], signal=found["id"], snr=found["metrics"].get("snr"),
+                         period_days=found["metrics"]["period_days"], transits=found["metrics"].get("transits"))
+            if found["tier"].startswith(("strong", "candidate")) and found.get("known") is None:
+                entry["ctoi"] = ctoi_row(found, author)
+                figures_for(found, star, residuals, maxima, event_title(found), folder / "figures" / str(found["id"]), root)
+        out["candidates"].append(entry)
+    write_file(folder / "ctoi.json", out)
+    return out
+
+
+def refine(tics, root, snapshots, public, author, config):
+    """Refine every star with a CTOI row, once."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    _, ctoi = candidate_rows(tics, root, author)
+    done = 0
+    for tic, group in ctoi.items():
+        folder = refine_folder(public, tic, today)
+        if (folder / "ctoi.json").exists():
+            continue
+        started = time.perf_counter()
+        out = refine_star(tic, [e["peak"] for e, _ in group], root, snapshots, folder, config, author)
+        done += 1
+        print(f"refine TIC {tic} {time.perf_counter() - started:.0f}s sectors {out['sectors']}: "
+              + "; ".join(f"P={c['survey_period_days']:.3f} -> {c['outcome']}" + (f", {c['tier']}" if "tier" in c else "")
+                          for c in out["candidates"]), flush=True)
+    print(f"refine: {len(ctoi)} candidate stars, {done} refined now")
+
+
+def refined_rows(public, tic):
+    """CTOI rows of a refined star: those of its surviving candidates, or [] when none survived."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    out = read_file(refine_folder(public, tic, today) / "ctoi.json")
+    if out is None:
+        return None
+    return [c["ctoi"] for c in out["candidates"] if "ctoi" in c]
+
+
 def publish(tics, root, public, author):
     """Cumulative `public/candidates.csv` and `public/ctoi.csv` (every star, current rules), plus the
     folder of the day with the stars first published today and, for each of its CTOI rows, the
-    supporting figure ExoFOP asks for (with the period maxima of a fresh detector run on that star). ExoFOP needs period, epoch, depth and duration for cTOI
-    consideration, so single events stay in the candidate table only."""
+    supporting figures ExoFOP asks for (with the period maxima of a fresh detector run on that star).
+    A refined star contributes its refined CTOI rows instead of the survey ones. ExoFOP needs period,
+    epoch, depth and duration for cTOI consideration, so single events stay in the candidate table only."""
     from .ctoi import COLUMNS
-    from .figures import candidate_figures, pixel_figure
-    from .pixels import sector_images
     from .star import load_star
     public = Path(public)
     public.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows, ctoi = candidate_rows(tics, root, author)
+    for tic in list(ctoi):
+        refined = refined_rows(public, tic)
+        if refined is not None:
+            ctoi[tic] = [(None, row) for row in refined]
     order = lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0))
     everything = sorted((r for group in rows.values() for r in group), key=order)
     if everything:
@@ -367,17 +497,12 @@ def publish(tics, root, public, author):
         if new_ctoi:
             write_csv(day / "ctoi.csv", COLUMNS, [row for _, row in new_ctoi])
             for e, _ in new_ctoi:
+                if e is None:
+                    continue  # refined: its figures are in the refine folder
                 star = load_star(root, e["tic"])
-                prep = folded(star, load_residuals(root, e["tic"]), e["peak"], [tuple(m) for m in e["masks"]])
-                m = e["metrics"]
-                title = (f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  "
-                         f"{m['transits']} transits  {e['tier']}")
                 maxima = period_maxima(star, search_config(read(root, "search", e["tic"])["config"]))
-                folder = day / "figures" / f"{e['tic']}_{e['id']}"
-                candidate_figures(prep, m, title, folder, maxima)
-                if any(d.get("used") for d in (m.get("pixel_test") or {}).get("sectors", [])):
-                    p = e["peak"]
-                    pixel_figure(sector_images(star, p["period_days"], p["epoch_bjd"], p["duration_hours"], root), title, folder)
+                figures_for(e, star, load_residuals(residuals_path(root, e["tic"])), maxima, event_title(e),
+                            day / "figures" / f"{e['tic']}_{e['id']}", root)
     return len(everything), sum(len(g) for g in ctoi.values()), len(new)
 
 
@@ -454,6 +579,8 @@ def main():
     if args.stage == "publish":
         rows, ctoi, new = publish(tics, args.root, args.public, args.author)
         print(f"public: {rows} vetted signals, {ctoi} CTOI rows, {new} stars first published today")
+    elif args.stage == "refine":
+        refine(tics, args.root, args.snapshots, args.public, args.author, search_config(pmax=args.pmax))
     elif args.workers > 1 and args.shard is None:
         children = [subprocess.Popen([sys.executable, "-m", "fbls.survey.run", *sys.argv[1:], "--shard", str(k)]) for k in range(args.workers)]
         for child in children:

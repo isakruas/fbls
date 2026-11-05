@@ -11,7 +11,7 @@ of the FITS file.
 Usage:
   download.py --pilot            # the pilot stars flagged in the manifest
   download.py                    # the complete manifest
-  download.py --workers 4 --root ../data/blind
+  download.py --tic 3756996      # every sector of one star, from the local MAST sector manifests
 """
 import argparse
 import csv
@@ -139,9 +139,26 @@ def refresh_sidecars(root):
     return updated
 
 
+def rows_for(tics):
+    """Manifest-like rows for every SPOC 120 s light curve of the given stars, from the sector manifests."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from select_targets import products
+    table = products()
+    rows = []
+    for tic in tics:
+        for sector, (filename, url, _) in sorted(table.get(int(tic), {}).items()):
+            t = f"{int(tic):016d}"
+            rows.append({"tic_id": str(tic), "sector": str(sector), "filename": filename, "download_url": url,
+                         "mirror_url": f"https://stpubdata.s3.amazonaws.com/tess/public/tid/s{sector:04d}/"
+                                       f"{t[0:4]}/{t[4:8]}/{t[8:12]}/{t[12:16]}/{filename}"})
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    parser.add_argument("--tic", type=int, nargs="*", help="Every sector of these stars instead of the manifest")
     parser.add_argument("--root", type=Path, default=ROOT / "data")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--pilot", action="store_true", help="Only rows flagged pilot=True")
@@ -151,13 +168,16 @@ def main():
     if args.refresh_sidecars:
         print(f"sidecars updated: {refresh_sidecars(args.root.resolve())}")
         return
-    with args.manifest.open() as f:
-        rows = [r for r in csv.DictReader(f) if not args.pilot or r.get("pilot") == "True"]
+    if args.tic:
+        rows = rows_for(args.tic)
+    else:
+        with args.manifest.open() as f:
+            rows = [r for r in csv.DictReader(f) if not args.pilot or r.get("pilot") == "True"]
     if args.limit:
         rows = rows[:args.limit]
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    log_path = root / ("download_log_pilot.json" if args.pilot else "download_log.json")
+    log_path = root / ("download_log_tic.json" if args.tic else "download_log_pilot.json" if args.pilot else "download_log.json")
     log, counts = [], {}
     started = time.time()
     with ThreadPoolExecutor(args.workers) as pool:
