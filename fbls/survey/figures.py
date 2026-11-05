@@ -126,3 +126,29 @@ def candidate_figures(prep, metrics, title, folder, maxima=None):
     ax.set_title("full orbit", fontsize=10)
     save(fig, "orbit.png")
     return written
+
+
+def pixel_figure(images, title, folder):
+    """Out-of-transit and difference images per sector, with the target (x) and the fitted source (+)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    images = [i for i in images if i["source"] is not None]
+    if not images:
+        return None
+    fig, axes = plt.subplots(2, len(images), figsize=(3.2 * len(images), 6.2), squeeze=False)
+    for col, image in enumerate(images):
+        for row, (data, label) in enumerate(((image["oot"], "out of transit"), (image["difference"], "out - in transit"))):
+            ax = axes[row, col]
+            ax.imshow(data, origin="lower", cmap="gray_r", interpolation="nearest")
+            ax.plot(*image["target"], "x", color=BLUE, ms=9, mew=2, label="target")
+            ax.plot(image["source"]["x"], image["source"]["y"], "+", color=ORANGE, ms=11, mew=2, label="difference source")
+            ax.set_title(f"sector {image['sector']}, {label}" + (f"\n{image['transits']} transits, source SNR {image['source']['snr']:.1f}" if row else ""), fontsize=9)
+            ax.set_xticks([])
+            ax.set_yticks([])
+    axes[0, 0].legend(fontsize=7, frameon=False, loc="upper left")
+    fig.suptitle(title, fontsize=10)
+    path = Path(folder) / "pixels.png"
+    fig.savefig(path, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    return path

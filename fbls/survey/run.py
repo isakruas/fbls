@@ -345,7 +345,8 @@ def publish(tics, root, public, author):
     supporting figure ExoFOP asks for (with the period maxima of a fresh detector run on that star). ExoFOP needs period, epoch, depth and duration for cTOI
     consideration, so single events stay in the candidate table only."""
     from .ctoi import COLUMNS
-    from .figures import candidate_figures
+    from .figures import candidate_figures, pixel_figure
+    from .pixels import sector_images
     from .star import load_star
     public = Path(public)
     public.mkdir(parents=True, exist_ok=True)
@@ -372,7 +373,11 @@ def publish(tics, root, public, author):
                 title = (f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  "
                          f"{m['transits']} transits  {e['tier']}")
                 maxima = period_maxima(star, search_config(read(root, "search", e["tic"])["config"]))
-                candidate_figures(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}", maxima)
+                folder = day / "figures" / f"{e['tic']}_{e['id']}"
+                candidate_figures(prep, m, title, folder, maxima)
+                if any(d.get("used") for d in (m.get("pixel_test") or {}).get("sectors", [])):
+                    p = e["peak"]
+                    pixel_figure(sector_images(star, p["period_days"], p["epoch_bjd"], p["duration_hours"], root), title, folder)
     return len(everything), sum(len(g) for g in ctoi.values()), len(new)
 
 

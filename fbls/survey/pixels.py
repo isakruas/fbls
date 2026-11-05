@@ -127,9 +127,9 @@ def transit_centers(time, period, epoch):
     return epoch + k * period
 
 
-def pixel_test(star, period, epoch, duration_hours, root, epochs=None):
-    """Difference-image source offset from the target, combined over up to three sectors."""
-    from scipy import stats
+def sector_images(star, period, epoch, duration_hours, root, epochs=None):
+    """Per sector with transits (up to three): difference image, out-of-transit image, target
+    position, fitted source (or None) and the number of transits combined."""
     duration = duration_hours / 24
     times = np.asarray(epochs if epochs is not None else transit_centers(star["time_bjd"], period, epoch))
     sectors = []
@@ -137,19 +137,29 @@ def pixel_test(star, period, epoch, duration_hours, root, epochs=None):
         t = star["time_bjd"][star["sector"] == s]
         if np.any((times > t[0] - duration) & (times < t[-1] + duration)):
             sectors.append(int(s))
-    details = []
+    out = []
     for s in sectors[-MAX_SECTORS:]:
         time, flux, _, target = read_tpf(tpf_file(star, s, root))
         centers = times[(times > time[0]) & (times < time[-1])]
         image = difference_image(time, flux, centers, duration)
         if image is None:
             continue
-        source = fit_source(image["difference"], image["error"])
+        out.append({"sector": s, "transits": image["transits"], "difference": image["difference"], "error": image["error"],
+                    "oot": image["oot"], "target": target, "source": fit_source(image["difference"], image["error"])})
+    return out
+
+
+def pixel_test(star, period, epoch, duration_hours, root, epochs=None):
+    """Difference-image source offset from the target, combined over up to three sectors."""
+    from scipy import stats
+    details = []
+    for image in sector_images(star, period, epoch, duration_hours, root, epochs):
+        s, source = image["sector"], image["source"]
         if source is None or source["snr"] < MIN_DIFFERENCE_SNR:
             details.append({"sector": s, "transits": image["transits"], "difference_snr": source["snr"] if source else None, "used": False})
             continue
         details.append({"sector": s, "transits": image["transits"], "difference_snr": source["snr"], "used": True,
-                        "dx_pixels": float(source["x"] - target[0]), "dy_pixels": float(source["y"] - target[1]),
+                        "dx_pixels": float(source["x"] - image["target"][0]), "dy_pixels": float(source["y"] - image["target"][1]),
                         "dx_err": float(np.hypot(source["x_err"], SYSTEMATIC_PIXELS)),
                         "dy_err": float(np.hypot(source["y_err"], SYSTEMATIC_PIXELS))})
     used = [d for d in details if d["used"]]

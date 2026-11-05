@@ -144,6 +144,19 @@ class FigureTest(unittest.TestCase):
                              ["light_curve.png", "folded.png", "transits.png", "odd_even.png", "period_maxima.png", "orbit.png"])
             self.assertTrue(all(p.stat().st_size > 5000 for p in written))
 
+    def test_pixel_figure_is_written(self):
+        import tempfile
+        import numpy as np
+        from fbls.survey.figures import pixel_figure
+        image = np.zeros((11, 11))
+        image[5, 5] = 1.
+        images = [{"sector": 1, "transits": 2, "difference": image, "error": image + .1, "oot": image * 10, "target": (5., 5.),
+                   "source": {"x": 5.2, "y": 4.9, "x_err": .1, "y_err": .1, "snr": 8.}}]
+        with tempfile.TemporaryDirectory() as folder:
+            path = pixel_figure(images, "test", folder)
+            self.assertGreater(path.stat().st_size, 5000)
+            self.assertIsNone(pixel_figure([dict(images[0], source=None)], "test", folder))
+
 
 if __name__ == "__main__":
     unittest.main()
