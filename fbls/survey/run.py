@@ -12,7 +12,7 @@ repeated whenever a rule changes. A stage never overwrites an
 existing output. Catalog information is used only after the search.
 
 Usage:
-  fbls-survey search --targets targets/targets_download.csv
+  fbls-survey search --targets targets/targets_download.csv --workers 4
   fbls-survey vet --targets targets/targets_download.csv
   fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... ; fbls-survey publish --targets ...
 """
@@ -21,6 +21,8 @@ import copy
 import csv
 import json
 import math
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -376,6 +378,8 @@ def main():
     parser.add_argument("--pmax", type=float, default=100.)
     parser.add_argument("--author", default=AUTHOR)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--workers", type=int, default=1, help="Processes sharing the stage (the GPU, for search)")
+    parser.add_argument("--shard", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     tics = list(args.tic or [])
     if args.targets:
@@ -386,7 +390,13 @@ def main():
     if args.stage == "publish":
         rows, new = publish(tics, args.root, args.public, args.author)
         print(f"public: {rows} vetted signals, {new} new CTOI rows")
+    elif args.workers > 1 and args.shard is None:
+        children = [subprocess.Popen([sys.executable, "-m", "fbls.survey.run", *sys.argv[1:], "--shard", str(k)]) for k in range(args.workers)]
+        for child in children:
+            child.wait()
     else:
+        if args.shard is not None:
+            tics = tics[args.shard::args.workers]
         run_stage(args.stage, tics, args)
 
 

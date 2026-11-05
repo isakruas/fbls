@@ -16,7 +16,7 @@ python3 -m venv .venv
 
 ```bash
 fbls --input curve.npz --pmax 100 --output detections.json      # one star, JSON schema 3
-fbls-survey search --targets targets/targets_download.csv       # GPU search -> data/survey/search/
+fbls-survey search --targets targets/targets_download.csv --workers 4     # GPU search, N processes -> data/survey/search/
 fbls-survey vet --targets ...                                   # cross-match, duplicates, vetting -> data/survey/vetting/
 fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... # only for signals that passed the stage before
 fbls-survey publish --targets ...                               # tiers, candidates and CTOI rows in public/
