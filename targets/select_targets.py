@@ -14,6 +14,7 @@ the report records each catalog's coverage and limitations. Known planet
 parameters are used only to exclude stars, never to rank them.
 
 Usage:
+  select_targets.py fetch-snapshots                       # MAST sector manifests and catalog snapshots
   select_targets.py fetch-tic   [--min-sectors 2]        # cache TIC rows for the candidate pool
   select_targets.py select      [--pilot 10]              # write targets_download.csv and manifests
 """
@@ -31,10 +32,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(__file__).resolve().parent
 TIC_CACHE = OUT / "tic_cache.jsonl"
-DEFAULT_SOURCE = ROOT.parents[1] / "tess" / "data"
+DEFAULT_SOURCE = ROOT / "data" / "snapshots"
 SOURCE = DEFAULT_SOURCE
 PRODUCT = re.compile(r"https://\S+/(tess(\d{13})-s(\d{4})-(\d{16})-\d{4}-s_lc\.fits)$")
 MAST_API = "https://mast.stsci.edu/api/v0/invoke"
+MANIFEST_URL = "https://archive.stsci.edu/missions/tess/download_scripts/sector/tesscurl_sector_{}_lc.sh"
+TAP = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
+PLANETS_QUERY = ("select pl_name, tic_id, pl_orbper, pl_orbpererr1, pl_tranmid, pl_tranmiderr1, pl_trandur, tran_flag "
+                 "from pscomppars where tic_id is not null")
+CTOI_URL = "https://exofop.ipac.caltech.edu/tess/download_ctoi.php?sort=ctoi&output=csv"
+EXOFOP_TOI_URL = "https://exofop.ipac.caltech.edu/tess/download_toi.php?sort=toi&output=csv"
+EB_URL = "https://archive.stsci.edu/hlsps/tess-ebs/hlsp_tess-ebs_tess_lcf-ffi_s0001-s0026_tess_v1.0_cat.csv"
+TCE_INDEX = "https://archive.stsci.edu/tess/bulk_downloads/bulk_downloads_tce.html"
+TCE_FILE = re.compile(r"/missions/tess/catalogs/tce/[^\"]+_dvr-tcestats\.csv")
 TIC_COLUMNS = "ID,ra,dec,Tmag,Teff,rad,mass,logg,d,contratio,objType,lumclass,disposition,duplicate_id"
 SECTOR_DAYS = 27.4
 QUOTA = {"A": 500, "B": 350, "C": 150}
@@ -67,8 +77,13 @@ def exclusions():
         by_catalog[source] = {int(r["tic"]) for r in known if r["source"] == source}
     with (SOURCE / "catalogs/exofop_toi.csv").open() as f:
         by_catalog["ExoFOP TOI table"] = {int(r["TIC ID"]) for r in csv.DictReader(f) if r.get("TIC ID", "").isdigit()}
-    cache = {int(p.name) for p in (SOURCE / "curves").glob("*") if p.name.isdigit()}
-    by_catalog["local cache (labeled/development stars)"] = cache
+    used = set()
+    for name in ("development_targets.csv", "control_targets.csv"):
+        path = OUT / name
+        if path.exists():
+            with path.open() as f:
+                used.update(int(r["tic_id"]) for r in csv.DictReader(f))
+    by_catalog["development and control groups"] = used
     return by_catalog
 
 
@@ -96,6 +111,103 @@ def fetch_tic(ids, attempts=4):
             pass
         time.sleep(5 * (attempt + 1))
     raise RuntimeError(f"TIC query failed after {attempts} attempts: {result.stderr[-300:]}")
+
+
+def fetch_text(url, query=None):
+    command = ["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "3", "--retry-all-errors",
+               "--connect-timeout", "20", "--max-time", "600", url]
+    if query:
+        command[-1:] = ["-G", url, "--data-urlencode", f"query={query}", "--data-urlencode", "format=json"]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(f"download failed ({url}): {result.stderr.strip()[-200:]}")
+    return result.stdout
+
+
+def positive(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def command_fetch_snapshots(args):
+    """Download the MAST sector manifests and the exclusion catalogs into the snapshot directory."""
+    import io
+    from concurrent.futures import ThreadPoolExecutor
+    manifests = SOURCE / "manifests"
+    catalogs = SOURCE / "catalogs"
+    manifests.mkdir(parents=True, exist_ok=True)
+    catalogs.mkdir(parents=True, exist_ok=True)
+
+    def manifest(sector):
+        path = manifests / f"sector-{sector}.sh"
+        if path.exists():
+            return True
+        result = subprocess.run(["curl", "--fail", "--silent", "--location", "--retry", "2", "--connect-timeout", "20",
+                                 "--output", str(path.with_suffix(".tmp")), MANIFEST_URL.format(sector)], capture_output=True, text=True)
+        if result.returncode == 22 and "404" in result.stderr:
+            return False
+        if result.returncode:
+            raise RuntimeError(f"manifest {sector}: {result.stderr.strip()[-200:]}")
+        path.with_suffix(".tmp").replace(path)
+        return True
+    sector = 1
+    with ThreadPoolExecutor(8) as pool:
+        while True:
+            found = list(pool.map(manifest, range(sector, sector + 8)))
+            if not all(found):
+                sector += found.index(False)
+                break
+            sector += 8
+    print(f"manifests: sectors 1-{sector - 1}", flush=True)
+    toi = json.loads(fetch_text(TAP, "select * from toi"))
+    if not isinstance(toi, list) or not toi or "tid" not in toi[0]:
+        raise ValueError("unexpected TOI table response")
+    (catalogs / "toi.json").write_text(json.dumps(toi))
+    (catalogs / "exofop_toi.csv").write_text(fetch_text(EXOFOP_TOI_URL))
+    ctois = list(csv.DictReader(io.StringIO(fetch_text(CTOI_URL))))
+    planets = json.loads(fetch_text(TAP, PLANETS_QUERY))
+    if not ctois or "CTOI" not in ctois[0] or not planets or "tic_id" not in planets[0]:
+        raise ValueError("unexpected CTOI or planet catalog response")
+    known = [{"source": "CTOI", "name": f"CTOI {r['CTOI']}", "tic": int(r["TIC ID"]), "period": positive(r["Period (days)"]),
+              "epoch": positive(r["Transit Epoch (BJD)"]), "duration_hours": positive(r["Duration (hrs)"]),
+              "disposition": r["TFOPWG Disposition"] or r["User Disposition"] or None, "transiting": True} for r in ctois]
+    known += [{"source": "planet", "name": r["pl_name"], "tic": int(r["tic_id"].split()[-1]), "period": positive(r["pl_orbper"]),
+               "epoch": positive(r["pl_tranmid"]), "duration_hours": positive(r["pl_trandur"]), "disposition": "published",
+               "transiting": bool(r["tran_flag"])} for r in planets]
+    known += [{"source": "EB", "name": f"EB TIC {r['tess_id']}", "tic": int(r["tess_id"]), "period": positive(r["period"]),
+               "epoch": positive(r["bjd0"]) and positive(r["bjd0"]) + 2457000, "duration_hours": None,
+               "disposition": "eclipsing binary", "transiting": False}
+              for r in csv.DictReader(io.StringIO(fetch_text(EB_URL)))]
+    tce_dir = catalogs / "tce"
+    tce_dir.mkdir(exist_ok=True)
+    files = sorted(set(TCE_FILE.findall(fetch_text(TCE_INDEX))))
+    if not files:
+        raise ValueError("no TCE files found on the MAST bulk download page")
+
+    def tce(path):
+        run = re.search(r"-(s\d{4}-s\d{4})_", path).group(1)
+        local = tce_dir / Path(path).name
+        if not local.exists():
+            local.write_text(fetch_text("https://archive.stsci.edu" + path))
+        with local.open() as f:
+            return [{"source": "TCE", "name": f"TCE {run} {r['tceid'].lstrip('0')}", "tic": int(r["ticid"]),
+                     "period": positive(r["tce_period"]), "epoch": positive(r["tce_time0"]),
+                     "duration_hours": positive(r["tce_duration"]), "disposition": None, "transiting": True}
+                    for r in csv.DictReader(line for line in f if not line.startswith("#"))]
+    with ThreadPoolExecutor(8) as pool:
+        for part in pool.map(tce, files):
+            known.extend(part)
+    (catalogs / "known.json").write_text(json.dumps(known))
+    summary = {"retrieved_at_utc": datetime.now(timezone.utc).isoformat(), "toi_objects": len(toi),
+               "manifest_sectors": sector - 1, "tce_runs": len(files),
+               "known_counts": dict(Counter(k["source"] for k in known)),
+               "sources": {"toi": f"{TAP} (select * from toi)", "exofop_toi": EXOFOP_TOI_URL, "ctoi": CTOI_URL,
+                           "planets": f"{TAP} ({PLANETS_QUERY})", "eb": EB_URL, "tce_index": TCE_INDEX, "manifests": MANIFEST_URL}}
+    (catalogs / "snapshot.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(json.dumps(summary, indent=2))
 
 
 def command_fetch_tic(args):
@@ -272,8 +384,10 @@ def command_select(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE,
-                        help="Directory with manifests/sector-*.sh, catalogs/ and curves/ (local MAST and catalog snapshots)")
+                        help="Snapshot directory: manifests/sector-*.sh and catalogs/ (see fetch-snapshots); optional curves/ cache of used stars")
     sub = parser.add_subparsers(dest="command", required=True)
+    snapshots = sub.add_parser("fetch-snapshots")
+    snapshots.set_defaults(run=command_fetch_snapshots)
     fetch = sub.add_parser("fetch-tic")
     fetch.add_argument("--min-sectors", type=int, default=2)
     fetch.add_argument("--batch", type=int, default=1000)

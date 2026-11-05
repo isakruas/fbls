@@ -73,7 +73,7 @@ def convert(fits_path, tic, sector, filename, root):
     sidecar = {"version": CURVE_VERSION, "tic": tic, "sector": sector, "author": "SPOC", "exptime": 120,
                "quality_bitmask": "default", "flux": "PDCSAP_FLUX", "centroid": "MOM_CENTR", "time": "BJD TDB",
                "crowdsap": crowding, "star": {k: (float(v) if v is not None else None) for k, v in star.items()},
-               "product": filename, "fits": str(fits_path),
+               "product": filename, "fits": str(fits_path.relative_to(root)),
                "fits_sha256": hashlib.sha256(fits_path.read_bytes()).hexdigest(),
                "fits_size_bytes": fits_path.stat().st_size, "points": int(good.sum()),
                "time_first_bjd": float(arrays["time_bjd"].min()) if good.any() else None,

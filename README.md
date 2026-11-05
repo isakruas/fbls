@@ -12,7 +12,7 @@ and an NVIDIA GPU. Python 3.10 or newer is required.
 Install CUDA-enabled PyTorch for the host before installing this package:
 
 ```bash
-python -m pip install /path/to/release
+python -m pip install /path/to/tess-gpu-search
 tess-search --input curve.npz --output detections.json --save-table periods.npz
 ```
 

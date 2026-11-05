@@ -69,7 +69,8 @@ def copy_files(rows, source, root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--source", type=Path, default=ROOT.parents[1] / "tess" / "data")
+    parser.add_argument("--source", type=Path, required=True,
+                        help="Directory with catalogs/toi.json, catalogs/known.json and curves/<tic>/sector-N.npz of labeled stars")
     parser.add_argument("--exclude", type=Path, nargs="*", default=[], help="JSON lists of TIC IDs to leave out")
     parser.add_argument("--per-bin", type=int, default=50)
     parser.add_argument("--fp-hosts", type=int, default=40, help="Stars whose only catalogued signals are TOI false positives")
