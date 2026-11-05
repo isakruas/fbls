@@ -37,6 +37,7 @@ repository, and no path in the code points at a specific machine.
 | `tess_search/cli.py` | `tess-search` command: NPZ input, JSON/NPZ output |
 | `tests/` | `test_contract.py` (no GPU), `test_pipeline_gpu.py`, `test_evidence_kernels.py` |
 | `targets/` | `select_targets.py` (blind sample), `download.py` (MAST/AWS fetch, NPZ conversion), `control_sample.py` (control and development groups), outputs CSV/JSON/MD |
+| `tess_survey/evaluate.py` | Blind recovery of catalogued planets over a labeled group (`data/evaluation/<name>/recovery.json`); development group for tuning, control group once with the frozen detector |
 | `tess_survey/` | Survey layer after the detector: `catalog.py` (cross-match with TOI/CTOI/planet/TCE/EB snapshots), `vetting.py` (odd/even, secondary, shape, density, centroid, crowding), `pixels.py` (TPF difference-image source test), `fpp.py` (TRICERATOPS, optional), `ctoi.py` (ExoFOP CTOI row), `run.py` (`tess-survey`: per-star JSON reports under `data/reports/`, dated `public/candidates_*.csv` and `public/ctoi_*.csv`) |
 | `docs/pipeline.mmd` | Mermaid flowchart of the detector |
 | `data/` | Not versioned: `curves/<tic>/sector-N.npz` + `.json`, `mast/lc/*.fits`, `snapshots/` (MAST manifests and catalog snapshots from `fetch-snapshots`) |
@@ -101,4 +102,5 @@ $PY -m tess_search --input data/curves/<tic>/sector-*.npz --pmax 100 --output ou
 $PY targets/select_targets.py fetch-snapshots && $PY targets/select_targets.py fetch-tic && $PY targets/select_targets.py select
 $PY targets/download.py --pilot && $PY targets/download.py --workers 4
 $PY -m tess_survey.run --targets targets/targets_download.csv        # or: .venv/bin/tess-survey
+$PY -m tess_survey.evaluate --group targets/development_targets.csv --name development --workers 4
 ```
