@@ -1,11 +1,13 @@
 """Supporting figure of a candidate for ExoFOP and the paper: the detrended light curve with the
 transits marked, the folded curve with the fitted trapezoid and its residuals, each transit on
-its own, odd against even transits, and the full orbit with the strongest secondary window."""
+its own, odd against even transits, the period maxima of the search above threshold, and the
+full orbit with the strongest secondary window."""
 import numpy as np
 
 from .vetting import trapezoid, wrap
 
 BIN_MINUTES = 10.
+MAX_INDIVIDUAL = 8
 DARK, ORANGE, BLUE = "#1f2429", "#b4521a", "#2a6f97"
 
 
@@ -18,7 +20,7 @@ def binned(x, y, width):
     return mean_x, mean_y, scatter
 
 
-def candidate_figure(prep, metrics, title, path):
+def candidate_figure(prep, metrics, title, path, maxima=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -64,9 +66,10 @@ def candidate_figure(prep, metrics, title, path):
     ax_res.set_ylabel("residual (ppt)")
 
     ax = fig.add_subplot(grid[1, 2])
+    shown = transits[:MAX_INDIVIDUAL]
     offset = 0.
     step = max(4 * depth * 1e3, 4 * np.nanstd(flux[near]) / np.sqrt(max(1, (near & (number == transits[0])).sum() / 5)) if transits else 1.)
-    for n in transits:
+    for n in shown:
         select = near & (number == n)
         x, y, e = binned(phase_h[select], flux[select], width_h)
         ax.errorbar(x, y - offset, e, fmt=".", color=DARK, ms=3, lw=.6)
@@ -74,7 +77,7 @@ def candidate_figure(prep, metrics, title, path):
         ax.text(3 * duration * 24, -offset + .2 * step, f"{epoch + n * period:.2f}", fontsize=7, ha="right", color=BLUE)
         offset += step
     ax.set_xlabel("hours from mid-transit")
-    ax.set_title("individual transits (offset)", fontsize=10)
+    ax.set_title(f"individual transits (offset){'' if len(shown) == len(transits) else f', first {len(shown)}'}", fontsize=10)
 
     ax = fig.add_subplot(grid[1, 3])
     for parity, color, label in ((1, BLUE, "odd"), (0, ORANGE, "even")):
@@ -87,7 +90,19 @@ def candidate_figure(prep, metrics, title, path):
     ax.set_xlabel("hours from mid-transit")
     ax.legend(fontsize=8, frameon=False)
 
-    ax = fig.add_subplot(grid[2, 2:])
+    ax = fig.add_subplot(grid[2, 2])
+    if maxima is not None and len(maxima[0]):
+        ax.plot(maxima[0], maxima[1], ".", color=DARK, ms=3)
+        ax.axvline(period, color=ORANGE, lw=1, alpha=.8, label=f"P = {period:.3f} d")
+        ax.set_xscale("log")
+        ax.legend(fontsize=8, frameon=False)
+    else:
+        ax.text(.5, .5, "period maxima not stored", ha="center", va="center", fontsize=8, transform=ax.transAxes)
+    ax.set_xlabel("period (d)")
+    ax.set_ylabel("SNR")
+    ax.set_title("period maxima above threshold", fontsize=10)
+
+    ax = fig.add_subplot(grid[2, 3])
     orbit = wrap(phase + period / 2, period) / period + .5
     x, y, e = binned(orbit, flux, max(duration / period / 2, 1 / 400))
     ax.errorbar(x, y, e, fmt=".", color=DARK, ms=3, lw=.6)
