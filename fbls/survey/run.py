@@ -1,13 +1,14 @@
 """Blind survey in stages, each one consuming the previous stage's files and skipping work already done.
 
-  search   FBLS on the GPU: peaks and single events per star          -> data/search/<tic>.json
-  vet      catalog cross-match, duplicates and vetting of every peak  -> data/vetting/<tic>.json
-  pixel    difference-image test of the signals that passed vetting   -> data/pixel/<tic>.json
-  fpp      TRICERATOPS for passing signals that are not catalogued    -> data/fpp/<tic>.json
+  search   FBLS on the GPU: peaks, single events and the detrended
+           families the peaks use                                      -> data/survey/search/<tic>.json, <tic>.npz
+  vet      catalog cross-match, duplicates and vetting of every peak  -> data/survey/vetting/<tic>.json
+  pixel    difference-image test of the signals that passed vetting   -> data/survey/pixel/<tic>.json
+  fpp      TRICERATOPS for passing signals that are not catalogued    -> data/survey/fpp/<tic>.json
   publish  tiers, candidate table and ExoFOP CTOI rows                -> public/candidates_YYYY-MM-DD.csv, ctoi_YYYY-MM-DD.csv
 
-Only the search costs GPU hours; the later stages re-detrend the light curve in
-seconds and can be repeated whenever a rule changes. A stage never overwrites an
+Only the search uses the GPU; the later stages read its files and can be
+repeated whenever a rule changes. A stage never overwrites an
 existing output. Catalog information is used only after the search.
 
 Usage:
@@ -30,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AUTHOR = "Isak Paulo de Andrade Ruas"
 TIER_ORDER = ("strong", "candidate", "inconclusive", "rejected", "duplicate")
 STAGES = ("search", "vet", "pixel", "fpp", "publish")
-FOLDERS = {"search": "search", "vet": "vetting", "pixel": "pixel", "fpp": "fpp"}
+FOLDERS = {"search": "survey/search", "vet": "survey/vetting", "pixel": "survey/pixel", "fpp": "survey/fpp"}
 
 
 def json_safe(value):
@@ -102,8 +103,14 @@ def rank(label):
     return next((i for i, o in enumerate(TIER_ORDER) if label.startswith(o)), len(TIER_ORDER))
 
 
+def family_index(residuals, peak):
+    """Family whose duration range is closest to the peak duration."""
+    d = peak["duration_hours"] / 24
+    return min(range(len(residuals)), key=lambda i: abs(math.log((residuals[i][0] * residuals[i][1]) ** .5 / d)))
+
+
 def detrended(star, config):
-    """Per-family detrended residuals, (shortest duration, longest duration, residual array) each."""
+    """Per-family detrended residuals on the GPU: (shortest duration, longest duration, residual array) each."""
     import torch
     from fbls.core import prepare_families, gpu64
     time_t = gpu64(star["time_bjd"])
@@ -123,11 +130,30 @@ def detrended(star, config):
     return residuals
 
 
+def residuals_path(root, tic):
+    return Path(root) / FOLDERS["search"] / f"{tic}.npz"
+
+
+def save_residuals(root, tic, star, config, peaks):
+    """Detrended residuals of the families the peaks use, so the later stages need no GPU."""
+    residuals = detrended(star, config)
+    used = sorted({family_index(residuals, p) for p in peaks})
+    arrays = {f"family_{i}": residuals[i][2].astype(np.float32) for i in used}
+    arrays["bounds"] = np.array([[residuals[i][0], residuals[i][1]] for i in used])
+    np.savez_compressed(residuals_path(root, tic), **arrays)
+
+
+def load_residuals(root, tic):
+    with np.load(residuals_path(root, tic)) as data:
+        bounds = data["bounds"]
+        keys = [k for k in data.files if k.startswith("family_")]
+        return [(float(lo), float(hi), data[k].astype(float)) for (lo, hi), k in zip(bounds, keys)]
+
+
 def folded(star, residuals, peak, masks):
     """Phase-folded detrended curve of one peak, from the family closest to its duration."""
     from .vetting import fold
-    d = peak["duration_hours"] / 24
-    corrected = min(residuals, key=lambda r: abs(math.log((r[0] * r[1]) ** .5 / d)))[2]
+    corrected = residuals[family_index(residuals, peak)][2]
     return fold(star["time_bjd"], corrected, star["sector"], peak["period_days"], peak["epoch_bjd"], peak["duration_hours"], masks)
 
 
@@ -139,10 +165,19 @@ def search_star(tic, root, config):
     star = load_star(root, tic)
     result = search_transits(gpu64(star["time_bjd"]), gpu64(star["flux"]), gpu64(star["flux_err"]),
                              torch.as_tensor(star["sector"], device="cuda").long(), config=config)
+    peaks = result.candidates(ranking="signal")
+    if peaks:
+        save_residuals(root, tic, star, result.config, peaks)
     return {"tic": int(tic), "config": result.config.__dict__, "baseline_days": float(star["time_bjd"][-1] - star["time_bjd"][0]),
             "statistics": {k: v for k, v in result.statistics.items()
                            if k in ("observations", "baseline_days", "periods_tested", "resolved_peaks", "single_events", "seconds_total")},
-            "peaks": result.candidates(ranking="signal"), "single_events": result.single_events}
+            "peaks": peaks, "single_events": result.single_events}
+
+
+def complete_residuals(tic, root, search):
+    """Residual file of a star searched before residuals were saved: detrending only, no new search."""
+    from .star import load_star
+    save_residuals(root, tic, load_star(root, tic), search_config(search["config"]), search["peaks"])
 
 
 def vet_star(tic, root, snapshots, search):
@@ -153,7 +188,7 @@ def vet_star(tic, root, snapshots, search):
     if not peaks and not search["single_events"]:
         return {"tic": int(tic), "baseline_days": search["baseline_days"], "events": []}
     star = load_star(root, tic)
-    residuals = detrended(star, search_config(search["config"])) if peaks else []
+    residuals = load_residuals(root, tic) if peaks else []
     known = known_by_star(str(snapshots)).get(int(tic), [])
     parents = [related_peak(peak, peaks[:i]) for i, peak in enumerate(peaks)]
     events = []
@@ -217,7 +252,7 @@ def fpp_star(tic, root, search, vetting, pixel):
     todo = [e for e in vetting["events"] if e.get("known") is None and passing(e, pixel)]
     if todo:
         star = load_star(root, tic)
-        residuals = detrended(star, search_config(search["config"]))
+        residuals = load_residuals(root, tic)
         for event in todo:
             prep = folded(star, residuals, event["peak"], [tuple(m) for m in event["masks"]])
             out[str(event["id"])] = fpp_job(star, prep, event["metrics"], root)
@@ -283,11 +318,19 @@ def publish(tics, root, public, author):
 
 def run_stage(stage, tics, args):
     root = args.root
+    def complete(tic):
+        search = read(root, "search", tic)
+        return search is not None and (not search.get("peaks") or residuals_path(root, tic).exists())
+
     pending = []
     for tic in tics:
-        if read(root, stage, tic) is not None:
+        if stage == "search":
+            if not complete(tic):
+                pending.append(tic)
             continue
-        inputs = {"search": (), "vet": ("search",), "pixel": ("vet",), "fpp": ("search", "vet", "pixel")}[stage]
+        if read(root, stage, tic) is not None or not complete(tic):
+            continue
+        inputs = {"vet": ("search",), "pixel": ("vet",), "fpp": ("search", "vet", "pixel")}[stage]
         if all(read(root, s, tic) is not None for s in inputs):
             pending.append(tic)
     pending = pending[:args.limit]
@@ -296,6 +339,10 @@ def run_stage(stage, tics, args):
     for n, tic in enumerate(pending, 1):
         started = time.perf_counter()
         try:
+            if stage == "search" and read(root, "search", tic) is not None:
+                complete_residuals(tic, root, read(root, "search", tic))
+                print(f"[{n}/{len(pending)}] TIC {tic} residuals saved", flush=True)
+                continue
             if stage == "search":
                 out = search_star(tic, root, config)
             elif stage == "vet":

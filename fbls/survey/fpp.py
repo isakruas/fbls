@@ -69,7 +69,7 @@ def fpp_once(star, prep, metrics, root, period=None, runs=3):
     if len(paths) < len(sectors):
         return {"error": "SPOC files missing for some sectors"}
     use_local_files(paths)
-    work = root / "triceratops"
+    work = root / "survey" / "triceratops"
     work.mkdir(parents=True, exist_ok=True)
     cwd = Path.cwd()
     try:

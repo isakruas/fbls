@@ -5,10 +5,13 @@ dist/
 *.egg-info/
 data/*
 !data/evaluation/
-!data/search/
-!data/vetting/
-!data/pixel/
-!data/fpp/
+!data/survey/
+data/survey/*
+!data/survey/search/
+!data/survey/vetting/
+!data/survey/pixel/
+!data/survey/fpp/
+data/survey/search/*.npz
 !data/snapshots/
 data/snapshots/*
 !data/snapshots/catalogs/
