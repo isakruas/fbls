@@ -1,4 +1,4 @@
-# Target selection report (2026-11-05T02:47:39.315704+00:00)
+# Target selection report (2026-11-05T02:48:11.218801+00:00)
 
 Stars with SPOC 120 s light curves in 107 sector manifests: 592556
 
