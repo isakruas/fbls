@@ -26,7 +26,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTHOR = "Isak Paulo de Andrade Ruas"
-TIER_ORDER = ("strong", "candidate", "inconclusive", "rejected")
+TIER_ORDER = ("strong", "candidate", "inconclusive", "rejected", "duplicate")
 
 
 def json_safe(value):
@@ -41,6 +41,15 @@ def json_safe(value):
     if isinstance(value, np.ndarray):
         return json_safe(value.tolist())
     return value
+
+
+def related_peak(peak, stronger):
+    """Index of a stronger peak whose period is this one's period or a harmonic (1, 2, 1/2, 3, 1/3)
+    within 1%: the same eclipsing system seen again (secondary eclipse, alias), not a new candidate."""
+    for j, other in enumerate(stronger):
+        if any(abs(peak["period_days"] / (other["period_days"] * ratio) - 1) < .01 for ratio in (1, 2, .5, 3, 1 / 3)):
+            return j
+    return None
 
 
 def tier(event):
@@ -92,14 +101,21 @@ def star_events(tic, root, config, snapshots, fpp=False, pixel=True):
     known = known_by_star(str(snapshots)).get(int(tic), [])
     baseline = float(star["time_bjd"][-1] - star["time_bjd"][0])
     peaks = result.candidates(ranking="signal")
+    parents = [related_peak(peak, peaks[:i]) for i, peak in enumerate(peaks)]
     events = []
     for i, peak in enumerate(peaks):
-        others = [(p["period_days"], p["epoch_bjd"], p["duration_hours"]) for j, p in enumerate(peaks) if j != i]
+        others = [(p["period_days"], p["epoch_bjd"], p["duration_hours"]) for j, p in enumerate(peaks)
+                  if j != i and parents[j] != i and parents[i] != j]
         match = match_known(peak, known)
         masks = others + known_masks(known, peak)
         d = peak["duration_hours"] / 24
         corrected = min(residuals, key=lambda r: abs(math.log((r[0] * r[1]) ** .5 / d)))[2]
         event = {"tic": int(tic), "search": "periodic", "peak": peak, "known": match, "baseline_days": baseline}
+        if parents[i] is not None:
+            event["related"] = {"period_days": peaks[parents[i]]["period_days"], "snr": peaks[parents[i]]["snr"]}
+            event["tier"] = "duplicate: harmonic or secondary of a stronger signal"
+            events.append(event)
+            continue
         try:
             prep = fold(star["time_bjd"], corrected, star["sector"], peak["period_days"], peak["epoch_bjd"],
                         peak["duration_hours"], masks)
@@ -215,7 +231,7 @@ def main():
         report["seconds"] = time.perf_counter() - started
         (reports_dir / f"{tic}.json").write_text(json.dumps(report, indent=1) + "\n")
         done.append(report)
-        summary = [f"{e['search']} P={e['metrics'].get('period_days')} {e.get('known', {}) and e['known'].get('name') or 'not catalogued'} -> {e['tier']}"
+        summary = [f"{e['search']} P={e['peak'].get('period_days')} {e.get('known', {}) and e['known'].get('name') or 'not catalogued'} -> {e['tier']}"
                    for e in report["events"] if "tier" in e]
         print(f"[{n}/{len(pending)}] TIC {tic} {report['seconds']:.0f}s " + ("; ".join(summary) or report.get("error", "no events")), flush=True)
     rows, new = write_public(done, args.public, args.author)
