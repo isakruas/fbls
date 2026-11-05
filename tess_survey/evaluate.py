@@ -45,18 +45,23 @@ def planets_of(tic, snapshots):
             continue
         if not finite(k["period"]) or k["period"] <= 0:
             continue
-        if any(abs(r["period"] / k["period"] - 1) < 2e-3 for r in rows):
-            continue
-        rows.append({"name": k["name"], "kind": kind, "period": k["period"], "epoch": k["epoch"],
-                     "duration_hours": k["duration_hours"]})
+        row = {"name": k["name"], "kind": kind, "period": k["period"], "epoch": k["epoch"], "duration_hours": k["duration_hours"],
+               "period_err": k.get("period_err"), "epoch_err": k.get("epoch_err")}
+        same = next((r for r in rows if abs(r["period"] / k["period"] - 1) < 2e-3), None)
+        if same is None:
+            rows.append(row)
+        elif (row["period_err"] or math.inf) < (same["period_err"] or math.inf):
+            same.update(row, name=same["name"], kind=same["kind"])
     return rows
 
 
 def rank_of(candidates, target, time):
-    """Rank of the first candidate whose period is within 1% of the catalog period and whose predicted
-    transits coincide, within one duration, with at least half of the catalog transits sampled in the
-    data. Event-based matching tolerates transit-timing variations and the period precision of few
-    transits; harmonics receive no credit."""
+    """Rank of the first candidate whose period is within 1% of the catalog period and whose transits
+    coincide, within one duration, with at least half of the catalog transits sampled in the data.
+    The catalog period is anchored at the detected epoch, so the limited precision of a period grid
+    over a multi-year baseline does not count against the detection; the tolerance grows with the
+    propagated 3-sigma error of the catalog ephemeris, up to a quarter period; the coincidence
+    fraction tolerates transit-timing variations. Harmonics receive no credit."""
     p, e, h = target["period"], target["epoch"], target["duration_hours"]
     if not finite(e) or not finite(h) or not candidates:
         return None
@@ -64,17 +69,48 @@ def rank_of(candidates, target, time):
     cycles = np.arange(np.ceil((time[0] - e) / p), np.floor((time[-1] - e) / p) + 1)
     transits = e + cycles * p
     sampled = np.array([np.sum(np.abs(time - t) <= d / 2) >= 3 for t in transits])
-    transits = transits[sampled]
+    transits, cycles = transits[sampled], cycles[sampled]
     if not len(transits):
         return None
+    drift = 3 * np.hypot(np.abs(cycles) * (target.get("period_err") or 0.), target.get("epoch_err") or 0.)
+    tolerance = d + np.minimum(drift, p / 4)
     for rank, c in enumerate(candidates, 1):
         if abs(c["period_days"] / p - 1) > .01:
             continue
-        shift = (transits - c["epoch_bjd"]) / c["period_days"]
-        offsets = np.abs(shift - np.round(shift)) * c["period_days"]
-        if np.mean(offsets <= d) >= .5:
+        shift = (transits - c["epoch_bjd"]) / p
+        offsets = np.abs(shift - np.round(shift)) * p
+        if np.mean(offsets <= tolerance) >= .5:
             return rank
     return None
+
+
+def ranked(peaks, ranking):
+    """Stored peaks in the order of `TransitSearchResult.candidates(ranking=...)`."""
+    rows = [dict(r) for r in peaks]
+    if ranking == "signal":
+        rows.sort(key=lambda r: -r["snr"])
+    else:
+        def key(r):
+            odds, evidence, preferred = r.get("planet_log_odds"), r.get("log_bf_planet_noise"), r.get("model_preferred", False)
+            return (0 if preferred else 1, -(evidence if preferred and evidence is not None else
+                                             (odds if odds is not None else -math.inf)))
+        rows.sort(key=key)
+    return rows
+
+
+def match(peaks, targets, time_all, sectors, baseline, config_pmax):
+    out = []
+    for target in targets:
+        row = dict(target, sectors=sectors, baseline_days=baseline, in_range=.5 <= target["period"] <= config_pmax,
+                   sampled_events=sampled_events(time_all, target))
+        row["eligible"] = bool(row["in_range"] and row["sampled_events"] is not None and row["sampled_events"] >= 2)
+        for method, ranking in (("signal", "signal"), ("model", "planet")):
+            row[method + "_rank"] = rank_of(ranked(peaks, ranking), target, time_all)
+        hit = next((c for c in ranked(peaks, "signal") if rank_of([c], target, time_all)), None)
+        if hit:
+            row["hit"] = {k: hit.get(k) for k in ("period_days", "duration_hours", "snr", "depth_ppm", "events", "pass", "planet_log_odds", "model_preferred")}
+        out.append(row)
+    return out
 
 
 def sampled_events(time, target):
@@ -97,19 +133,26 @@ def evaluate_star(tic, root, snapshots, config):
                              torch.as_tensor(star["sector"], device="cuda").long(), config=config)
     time_all = star["time_bjd"]
     baseline = float(time_all[-1] - time_all[0])
-    out = []
-    for target in planets_of(tic, snapshots):
-        row = dict(target, tic=int(tic), sectors=len(set(star["sector"].astype(int))), baseline_days=baseline,
-                   in_range=.5 <= target["period"] <= config.period_max, sampled_events=sampled_events(time_all, target))
-        row["eligible"] = bool(row["in_range"] and row["sampled_events"] is not None and row["sampled_events"] >= 2)
-        for method, ranking in (("signal", "signal"), ("model", "planet")):
-            row[method + "_rank"] = rank_of(result.candidates(ranking=ranking), target, time_all)
-        hit = next((c for c in result.candidates(ranking="signal") if rank_of([c], target, time_all)), None)
-        if hit:
-            row["hit"] = {k: hit.get(k) for k in ("period_days", "duration_hours", "snr", "depth_ppm", "events", "pass", "planet_log_odds", "model_preferred")}
-        out.append(row)
+    targets = [dict(t, tic=int(tic)) for t in planets_of(tic, snapshots)]
+    out = match(result.candidates(ranking="signal"), targets, time_all, len(set(star["sector"].astype(int))), baseline, config.period_max)
     return {"tic": int(tic), "seconds": result.statistics["seconds_total"], "baseline_days": baseline,
             "peaks": result.candidates(ranking="signal"), "single_events": result.single_events, "recovery": out}
+
+
+def rematch(folder, root, snapshots, pmax):
+    """Recompute the catalog matching of every stored report from its peaks, without re-running the detector."""
+    from .star import load_star
+    for path in folder.glob("*.json"):
+        if path.name == "recovery.json":
+            continue
+        r = json.loads(path.read_text())
+        if "peaks" not in r:
+            continue
+        star = load_star(root, r["tic"])
+        time_all = star["time_bjd"]
+        targets = [dict(t, tic=r["tic"]) for t in planets_of(r["tic"], snapshots)]
+        r["recovery"] = match(r["peaks"], targets, time_all, len(set(star["sector"].astype(int))), r["baseline_days"], pmax)
+        path.write_text(json.dumps(r, indent=1) + "\n")
 
 
 def summarize(folder):
@@ -155,7 +198,10 @@ def main():
     folder = args.root / "evaluation" / args.name
     folder.mkdir(parents=True, exist_ok=True)
     if args.report_only:
-        print(json.dumps(summarize(folder)["counts"], indent=1))
+        rematch(folder, args.root, args.snapshots, args.pmax)
+        report = summarize(folder)
+        print(json.dumps(report["counts"], indent=1))
+        print("missed planets:", len(report["missed_planets"]))
         return
     with args.group.open() as f:
         tics = [int(r["tic_id"]) for r in csv.DictReader(f)]
