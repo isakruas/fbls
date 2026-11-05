@@ -56,8 +56,12 @@ def convert(fits_path, tic, sector, filename, root):
     import numpy as np
     from astropy.io import fits
     from lightkurve.utils import TessQualityFlags
+    from astropy.wcs import WCS
     with fits.open(fits_path) as hdul:
         head, data = hdul[0].header, hdul[1].data
+        aperture = hdul[2].header
+        x, y = WCS(aperture).all_world2pix(head["RA_OBJ"], head["DEC_OBJ"], 0)
+        target_pixel = [float(x + aperture["CRVAL1P"]), float(y + aperture["CRVAL2P"])]
         time_bjd = data["TIME"] + hdul[1].header["BJDREFI"] + hdul[1].header["BJDREFF"]
         good = (TessQualityFlags.create_quality_mask(data["QUALITY"], "default")
                 & np.isfinite(time_bjd) & np.isfinite(data["PDCSAP_FLUX"]))
@@ -73,7 +77,7 @@ def convert(fits_path, tic, sector, filename, root):
     sidecar = {"version": CURVE_VERSION, "tic": tic, "sector": sector, "author": "SPOC", "exptime": 120,
                "quality_bitmask": "default", "flux": "PDCSAP_FLUX", "centroid": "MOM_CENTR", "time": "BJD TDB",
                "crowdsap": crowding, "star": {k: (float(v) if v is not None else None) for k, v in star.items()},
-               "product": filename, "fits": str(fits_path.relative_to(root)),
+               "target_pixel": target_pixel, "product": filename, "fits": str(fits_path.relative_to(root)),
                "fits_sha256": hashlib.sha256(fits_path.read_bytes()).hexdigest(),
                "fits_size_bytes": fits_path.stat().st_size, "points": int(good.sum()),
                "time_first_bjd": float(arrays["time_bjd"].min()) if good.any() else None,

@@ -37,6 +37,7 @@ repository, and no path in the code points at a specific machine.
 | `tess_search/cli.py` | `tess-search` command: NPZ input, JSON/NPZ output |
 | `tests/` | `test_contract.py` (no GPU), `test_pipeline_gpu.py`, `test_evidence_kernels.py` |
 | `targets/` | `select_targets.py` (blind sample), `download.py` (MAST/AWS fetch, NPZ conversion), `control_sample.py` (control and development groups), outputs CSV/JSON/MD |
+| `tess_survey/` | Survey layer after the detector: `catalog.py` (cross-match with TOI/CTOI/planet/TCE/EB snapshots), `vetting.py` (odd/even, secondary, shape, density, centroid, crowding), `pixels.py` (TPF difference-image source test), `fpp.py` (TRICERATOPS, optional), `ctoi.py` (ExoFOP CTOI row), `run.py` (`tess-survey`: per-star JSON reports under `data/reports/`, dated `public/candidates_*.csv` and `public/ctoi_*.csv`) |
 | `docs/pipeline.mmd` | Mermaid flowchart of the detector |
 | `data/` | Not versioned: `curves/<tic>/sector-N.npz` + `.json`, `mast/lc/*.fits`, `snapshots/` (MAST manifests and catalog snapshots from `fetch-snapshots`) |
 
@@ -76,14 +77,19 @@ planet/binary evidence ranks only about half of the false positives below the
 planets. Timing: ~5 s per one-sector star, ~1 min per 1,000-day baseline star
 for the shortest-duration family.
 
-## Not yet implemented
+## Survey flow
 
-The survey pipeline around the detector: iterating over the blind sample,
-cross-matching candidates against catalog snapshots, vetting (fit, FPP,
-centroid/pixel checks), tiering, and writing dated public candidate files in
-the ExoFOP CTOI column format. The neighbouring `tess` project (read-only)
-has `report.py::ctoi_row` and `search.py::match_known` as references for the
-CTOI columns and the cross-match rules.
+1. `tess-survey --targets targets/targets_download.csv` runs the detector on
+   every star (all sectors, 0.5-100 d), measures each accepted peak with the
+   other peaks masked, cross-matches the catalog snapshots, runs the pixel test
+   on signals that pass vetting and TRICERATOPS on new ones, assigns a tier and
+   writes `data/reports/<tic>.json`.
+2. The same run appends the day's vetted signals to `public/candidates_YYYY-MM-DD.csv`
+   and the new candidates (not catalogued, tier strong or candidate) to
+   `public/ctoi_YYYY-MM-DD.csv` in the ExoFOP CTOI column layout. A star is
+   processed once, so a candidate is published once.
+3. No learned classifier is used; tiers come from vetting flags, the detector's
+   planet/binary evidence and FPP/NFPP.
 
 ## Workflows
 
@@ -94,4 +100,5 @@ $PY -m pyflakes tess_search tests targets
 $PY -m tess_search --input data/curves/<tic>/sector-*.npz --pmax 100 --output out.json
 $PY targets/select_targets.py fetch-snapshots && $PY targets/select_targets.py fetch-tic && $PY targets/select_targets.py select
 $PY targets/download.py --pilot && $PY targets/download.py --workers 4
+$PY -m tess_survey.run --targets targets/targets_download.csv        # or: .venv/bin/tess-survey
 ```

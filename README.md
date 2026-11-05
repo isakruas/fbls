@@ -32,6 +32,15 @@ standard output unless `--output` specifies a file. Diagnostics use standard
 error. Exit codes are 0 for success, 1 for runtime failure and 2 for invalid input.
 Use `--help` for available parameters.
 
+## Survey, vetting and CTOI output
+
+`tess-survey` (package `tess_survey`, extra `survey`) runs the detector over a
+target list, cross-matches the peaks with the catalog snapshots, applies the
+vetting tests (odd/even depths, secondary eclipse, trapezoid shape, duration
+versus stellar density, centroid shift, crowding), the target-pixel
+difference-image test and TRICERATOPS, assigns tiers and writes dated public
+tables, including ExoFOP CTOI rows for new candidates. See `AGENTS.md`.
+
 ## Input contract
 
 NPZ files must contain one-dimensional arrays of equal length:

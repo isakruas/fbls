@@ -18,12 +18,14 @@ classifiers = [
 
 [project.optional-dependencies]
 targets = ["astropy>=6,<9", "lightkurve>=2.5,<3"]
+survey = ["scipy>=1.13,<2", "astropy>=6,<9", "lightkurve>=2.5,<3", "triceratops==1.1.0"]
 dev = ["pyflakes>=3"]
 
 [project.scripts]
 tess-search = "tess_search.cli:main"
+tess-survey = "tess_survey.run:main"
 
 [tool.setuptools]
-packages = ["tess_search"]
+packages = ["tess_search", "tess_survey"]
 include-package-data = false
 

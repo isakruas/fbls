@@ -20,11 +20,12 @@ from tess_search import cli
 
 
 class ReleaseLayoutTests(unittest.TestCase):
-    def test_only_runtime_package_is_declared(self):
+    def test_runtime_packages_and_scripts_are_declared(self):
         import tomllib
         config = tomllib.loads((RELEASE / "pyproject.toml").read_text())
-        self.assertEqual(config["tool"]["setuptools"]["packages"], ["tess_search"])
+        self.assertEqual(config["tool"]["setuptools"]["packages"], ["tess_search", "tess_survey"])
         self.assertEqual(config["project"]["scripts"]["tess-search"], "tess_search.cli:main")
+        self.assertEqual(config["project"]["scripts"]["tess-survey"], "tess_survey.run:main")
         self.assertEqual(config["project"]["version"], __version__)
 
     def test_imports_stay_inside_runtime_and_declared_dependencies(self):
