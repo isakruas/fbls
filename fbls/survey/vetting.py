@@ -94,7 +94,8 @@ def fit_shape(prep):
     if len(profile) > 3:
         try:
             scale = np.sum(fit.fun ** 2) / (len(profile) - 3)
-            errors = np.sqrt(np.diag(np.linalg.inv(fit.jac.T @ fit.jac)) * scale)
+            variance = np.diag(np.linalg.inv(fit.jac.T @ fit.jac)) * scale
+            errors = np.where(variance > 0, np.sqrt(np.abs(variance)), np.nan)
         except np.linalg.LinAlgError:
             pass
     return float(fit.x[2]), float(fit.x[1] * prep["duration"]), float(errors[2]), float(errors[1] * prep["duration"])
