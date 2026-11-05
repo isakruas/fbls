@@ -144,10 +144,11 @@ def main():
                         "span_days_estimate": round(span, 1), "period_bin": "false positive",
                         "planets": "; ".join(f"FP P={p:.4f} d" for _, p in sorted(rows, key=lambda x: x[1])),
                         "n_planets_in_range": 0, "files": files})
+    # Separate generators keep the planet-host draw independent of the false-positive draw.
     rng = random.Random(args.seed)
     selected = []
     fp_only.sort(key=lambda r: r["tic_id"])
-    rng.shuffle(fp_only)
+    random.Random(args.seed + 1).shuffle(fp_only)
     selected.extend(fp_only[:args.fp_hosts])
     print(f"false-positive-only hosts: available {len(fp_only)}, selected {min(len(fp_only), args.fp_hosts)}")
     for b, pool in pools.items():
