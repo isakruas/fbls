@@ -348,7 +348,7 @@ def command_select(args):
         w.writerows(excluded_rows)
     sources = {
         "generated_utc": started,
-        "manifests": {"path": str(SOURCE / "manifests"), "sectors": len(list(SOURCE.glob("manifests/sector-*.sh"))),
+        "manifests": {"sectors": len(list(SOURCE.glob("manifests/sector-*.sh"))),
                       "url_pattern": "https://archive.stsci.edu/missions/tess/download_scripts/sector/tesscurl_sector_N_lc.sh"},
         "catalog_snapshot": read_json(SOURCE / "catalogs/snapshot.json"),
         "tic": {"service": "Mast.Catalogs.Filtered.Tic", "api": MAST_API, "columns": TIC_COLUMNS,

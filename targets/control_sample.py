@@ -165,7 +165,8 @@ def main():
         for r in selected:
             w.writerow({k: r[k] for k in fields})
     (OUT / f"{args.label}_sources.json").write_text(json.dumps({
-        "source": str(source), "excluded_lists": [str(p) for p in args.exclude], "excluded_stars": len(excluded),
+        "source": "labeled light-curve cache (outside this repository)", "excluded_lists": [p.name for p in args.exclude],
+        "excluded_stars": len(excluded),
         "rule": "CP/KP TOIs and published transiting planets; cached span >= 2 x period of every planet in 0.5-100 d; "
                 "stratified by the longest period; seeded shuffle", "seed": args.seed, "per_bin": args.per_bin,
         "selected": len(selected), "fp_hosts": min(len(fp_only), args.fp_hosts),

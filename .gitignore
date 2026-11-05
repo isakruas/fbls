@@ -6,3 +6,4 @@ dist/
 data/
 targets/tic_cache.jsonl
 .venv/
+targets/*.log
