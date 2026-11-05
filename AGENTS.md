@@ -2,18 +2,14 @@
 
 ## Rules
 
-- English only in code, comments, docs and commit messages.
-- GPU float64 for scientific computation; no CPU fallbacks. Float32 only inside a kernel
-  for ranking, with the winner recomputed in float64.
-- Self-contained: nothing points outside the repository, no absolute machine paths in any
-  file (including untracked outputs under `data/`). Run `grep -r "/home/" --exclude-dir=.venv --exclude-dir=.git .`
-  before committing.
-- No dead code, no stray files. Before committing:
-  `.venv/bin/python -m pyflakes tess_search tess_survey tests targets` and
-  `.venv/bin/python -m unittest discover -s tests`.
+- Scientific computation on the GPU in float64; no CPU fallbacks. Float32 only for in-kernel
+  ranking, with the winner recomputed in float64.
+- Self-contained repository: no references to files outside it and no absolute paths in any file.
+- No dead code. Lint (`pyflakes tess_search tess_survey tests targets`) and tests
+  (`unittest discover -s tests`) must pass before a commit.
 - Catalog information (TOI, CTOI, planets, TCE, EB) is used after a search, never inside the detector.
-- The control group (`targets/control_targets.csv`) is never used for tuning; it is evaluated once
-  with the frozen detector. Tuning uses `targets/development_targets.csv`.
+- `targets/control_targets.csv` is evaluated once with the frozen detector and never used for tuning;
+  tuning uses `targets/development_targets.csv`.
 
 ## Layout
 
