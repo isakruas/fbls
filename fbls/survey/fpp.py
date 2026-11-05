@@ -4,6 +4,7 @@ TRICERATOPS' TESScut and SPOC aperture downloads are routed to the local SPOC
 light-curve files, whose APERTURE extension carries the same WCS and CCD corner,
 so nothing else is downloaded for the pixel geometry.
 """
+import time
 from pathlib import Path
 
 import numpy as np
@@ -33,12 +34,21 @@ def use_local_files(paths):
     funcs.find_url = lambda ID, sector: paths[str(int(sector))]
 
 
-def fpp_job(star, prep, metrics, root, period=None, runs=3):
-    """TRICERATOPS false positive probability of one vetted signal.
+def fpp_job(star, prep, metrics, root, period=None, runs=3, attempts=3):
+    """TRICERATOPS false positive probability of one vetted signal, retried on network errors
+    (the catalog queries go to MAST and Gaia)."""
+    for attempt in range(attempts):
+        result = fpp_once(star, prep, metrics, root, period, runs)
+        if "error" not in result or not any(w in result["error"] for w in ("Connection", "Timeout", "timed out", "RemoteDisconnected")):
+            return result
+        time.sleep(30 * (attempt + 1))
+    return result
 
-    The light curve is folded within 1.5 durations and binned to 5 minutes; the
-    pixel geometry comes from the local SPOC files. Returns FPP, NFPP, their
-    Monte Carlo spread and the leading scenarios, or an error message."""
+
+def fpp_once(star, prep, metrics, root, period=None, runs=3):
+    """One TRICERATOPS run. The light curve is folded within 1.5 durations and binned to 5 minutes;
+    the pixel geometry comes from the local SPOC files. Returns FPP, NFPP, their Monte Carlo
+    spread and the leading scenarios, or an error message."""
     try:
         import triceratops.triceratops as tr
     except ImportError:

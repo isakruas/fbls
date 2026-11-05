@@ -53,7 +53,8 @@ def related_peak(peak, stronger):
 
 
 def tier(event):
-    """Tier from vetting, model evidence and FPP; no learned classifier is involved."""
+    """Tier from vetting, model evidence and FPP; no learned classifier is involved. Without stellar
+    radius and temperature the radius, density and FPP tests are meaningless, so the signal stays a candidate."""
     m, fpp = event["metrics"], event.get("fpp") or {}
     if m["verdict"] == "fail":
         return "rejected: vetting"
@@ -62,6 +63,9 @@ def tier(event):
     preferred = bool(event["peak"].get("model_preferred"))
     if event.get("search") == "single":
         return "candidate: single event"
+    star = m.get("star") or {}
+    if not (star.get("radius") and star.get("teff")):
+        return "candidate: no stellar parameters"
     if fpp.get("fpp") is not None:
         if fpp["fpp"] < .01 and fpp["nfpp"] < .001 and preferred:
             return "strong: FPP < 1% and NFPP < 0.1%"

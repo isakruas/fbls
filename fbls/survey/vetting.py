@@ -25,6 +25,7 @@ ODD_EVEN_SIGMA = 4.
 CENTROID_SIGMA = 4.
 SECONDARY_SIGMA = 5.
 MAX_RADIUS_EARTH = 25.
+MAX_DURATION_FRACTION = .15  # t14 / P of a grazing transit at a/R* = 2; no stellar transit lasts longer
 FAIL, WARN = "fail", "warn"
 
 
@@ -310,7 +311,9 @@ def measure(prep, star=None, centr1=None, centr2=None, crowding=None, meta=None)
         flags["centroid_offset"] = WARN
     if crowding is not None and crowding < .8:
         flags["crowded"] = WARN
-    if density_ratio < .2:
+    if t14 / period > MAX_DURATION_FRACTION:
+        flags["duration_too_long"] = FAIL
+    elif density_ratio < .2:
         flags["duration_too_long"] = WARN
     if ingress > .4:
         flags["v_shape"] = WARN

@@ -95,5 +95,19 @@ class CtoiRowTest(unittest.TestCase):
         self.assertIsNotNone(row["a/Rad_s"])
 
 
+
+class TierTest(unittest.TestCase):
+    def event(self, star, fpp=None):
+        return {"search": "periodic", "peak": {"model_preferred": True}, "fpp": fpp,
+                "metrics": {"verdict": "pass", "star": star}}
+
+    def test_strong_needs_stellar_parameters(self):
+        from fbls.survey.run import tier
+        fpp = {"fpp": 1e-4, "nfpp": 0.}
+        self.assertTrue(tier(self.event({"radius": 1., "teff": 5800.}, fpp)).startswith("strong"))
+        self.assertEqual(tier(self.event({"radius": None, "teff": None}, fpp)), "candidate: no stellar parameters")
+        self.assertEqual(tier(self.event({"radius": 1., "teff": 5800.})), "candidate: no FPP")
+
+
 if __name__ == "__main__":
     unittest.main()
