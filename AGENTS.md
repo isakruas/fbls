@@ -2,7 +2,7 @@
 
 ## Rules
 
-- English only in code, comments, docs and commit messages. No AI attribution in commits.
+- English only in code, comments, docs and commit messages.
 - GPU float64 for scientific computation; no CPU fallbacks. Float32 only inside a kernel
   for ranking, with the winner recomputed in float64.
 - Self-contained: nothing points outside the repository, no absolute machine paths in any
