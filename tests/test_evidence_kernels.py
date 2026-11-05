@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
-from tess_search import SearchConfig
-from tess_search.core import NoiseModel, compare_search, gpu64, prepare_astrometry, occulted_flux, profile_bank, orbit_bank
+from fbls import SearchConfig
+from fbls.core import NoiseModel, compare_search, gpu64, prepare_astrometry, occulted_flux, profile_bank, orbit_bank
 
 torch.manual_seed(7203)
 torch.set_default_dtype(torch.float64)

@@ -11,7 +11,7 @@ Reports are written per star under `data/evaluation/<group>/` and summarized in
 detector, and never used for tuning.
 
 Usage:
-  python -m tess_survey.evaluate --group targets/development_targets.csv --name development [--workers 4]
+  python -m fbls.survey.evaluate --group targets/development_targets.csv --name development [--workers 4]
 """
 import argparse
 import csv
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 BINS = ((.5, 3.), (3., 10.), (10., 30.), (30., 100.))
 
 
@@ -143,8 +143,8 @@ def sampled_events(time, target):
 
 def evaluate_star(tic, root, snapshots, config):
     import torch
-    from tess_search import search_transits
-    from tess_search.core import gpu64
+    from fbls import search_transits
+    from fbls.core import gpu64
     from .star import load_star
     star = load_star(root, tic)
     result = search_transits(gpu64(star["time_bjd"]), gpu64(star["flux"]), gpu64(star["flux_err"]),
@@ -203,7 +203,7 @@ def summarize(folder):
 
 
 def main():
-    from tess_search import SearchConfig
+    from fbls import SearchConfig
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--group", type=Path, required=True, help="CSV with a tic_id column")
     parser.add_argument("--name", required=True, help="Evaluation name (output folder under data/evaluation)")
@@ -226,7 +226,7 @@ def main():
     with args.group.open() as f:
         tics = [int(r["tic_id"]) for r in csv.DictReader(f)]
     if args.workers > 1 and args.shard == 0 and "--shard" not in sys.argv:
-        children = [subprocess.Popen([sys.executable, "-m", "tess_survey.evaluate", "--group", str(args.group), "--name", args.name,
+        children = [subprocess.Popen([sys.executable, "-m", "fbls.survey.evaluate", "--group", str(args.group), "--name", args.name,
                                       "--root", str(args.root), "--snapshots", str(args.snapshots), "--pmax", str(args.pmax),
                                       "--workers", str(args.workers), "--shard", str(k), "--prescan-factor", str(args.prescan_factor)])
                     for k in range(args.workers)]

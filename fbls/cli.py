@@ -92,7 +92,7 @@ def _write_table(path, table):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="tess-search", description=__doc__)
+    parser = argparse.ArgumentParser(prog="fbls", description=__doc__)
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--input", type=Path, nargs="+", required=True, help="One or more NPZ light curves")
     parser.add_argument("--output", default="-", help="JSON destination; '-' writes to standard output")
@@ -198,7 +198,7 @@ def main(argv=None):
             _write_table(args.save_table, result.table)
         _write_json(args.output, report)
     except (ValueError, TypeError, OSError, KeyError) as error:
-        parser.exit(2, f"tess-search: {error}\n")
+        parser.exit(2, f"fbls: {error}\n")
     except RuntimeError as error:
-        parser.exit(1, f"tess-search: {error}\n")
+        parser.exit(1, f"fbls: {error}\n")
 

@@ -72,7 +72,7 @@ are not applied.
 ## Python integration
 
 ```python
-from tess_search import SearchConfig, search_transits
+from fbls import SearchConfig, search_transits
 
 config = SearchConfig(
     period_min=0.5,
@@ -354,7 +354,7 @@ pipeline's data distribution and candidate budget.
 `NoiseModel`, `search_templates` and `period_grid` expose the numerical layer:
 
 ```python
-from tess_search import NoiseModel, search_templates
+from fbls import NoiseModel, search_templates
 
 model = NoiseModel(relative_time, deficit, variance, modes, eigenvalues, origin=first_bjd)
 result = search_templates(model, periods_days, durations_days, reduce="period")

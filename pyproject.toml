@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tess-gpu-search"
-version = "0.4.0"
+version = "0.5.0"
 description = "FBLS: multi-pass fused box least squares transit search on the GPU, with a TESS survey layer"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,10 +22,10 @@ survey = ["scipy>=1.13,<2", "astropy>=6,<9", "lightkurve>=2.5,<3", "triceratops=
 dev = ["pyflakes>=3"]
 
 [project.scripts]
-tess-search = "tess_search.cli:main"
-tess-survey = "tess_survey.run:main"
+fbls = "fbls.cli:main"
+fbls-survey = "fbls.survey.run:main"
 
 [tool.setuptools]
-packages = ["tess_search", "tess_survey"]
+packages = ["fbls", "fbls.survey"]
 include-package-data = false
 

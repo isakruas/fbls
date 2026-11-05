@@ -2,10 +2,9 @@
 import math
 import unittest
 
-import numpy as np
 
-from tess_survey.ctoi import COLUMNS, ctoi_row
-from tess_survey.vetting import DAY, G, geometry
+from fbls.survey.ctoi import COLUMNS, ctoi_row
+from fbls.survey.vetting import DAY, G, geometry
 
 
 def durations(period, k, b, a_over_r):

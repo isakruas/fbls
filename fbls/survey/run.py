@@ -11,8 +11,8 @@ processed once, so its candidates appear only on the day it was processed.
 Catalog information is used only after the search.
 
 Usage:
-  python -m tess_survey.run --targets targets/targets_download.csv [--no-fpp] [--no-pixel]
-  python -m tess_survey.run --tic 123456789
+  fbls-survey --targets targets/targets_download.csv [--no-fpp] [--no-pixel]
+  fbls-survey --tic 123456789
 """
 import argparse
 import csv
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 AUTHOR = "Isak Paulo de Andrade Ruas"
 TIER_ORDER = ("strong", "candidate", "inconclusive", "rejected", "duplicate")
 
@@ -74,8 +74,8 @@ def tier(event):
 def star_events(tic, root, config, snapshots, fpp=False, pixel=True):
     """Detector peaks of one star with vetting, cross-match, pixel test and FPP."""
     import torch
-    from tess_search import search_transits
-    from tess_search.core import prepare_families, gpu64
+    from fbls import search_transits
+    from fbls.core import prepare_families, gpu64
     from .star import load_star
     from .catalog import known_by_star, match_known, match_single, known_masks
     from .vetting import fold, measure
@@ -197,7 +197,7 @@ def write_public(reports, public, author):
 
 
 def main():
-    from tess_search import SearchConfig
+    from fbls import SearchConfig
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--targets", type=Path, help="CSV with a tic_id column")
     parser.add_argument("--tic", type=int, nargs="*", help="Explicit TIC identifiers")

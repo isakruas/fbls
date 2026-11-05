@@ -15,22 +15,22 @@ import torch
 
 RELEASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE))
-from tess_search import SearchConfig, TransitSearchResult, __version__
-from tess_search import cli
+from fbls import SearchConfig, TransitSearchResult, __version__
+from fbls import cli
 
 
 class ReleaseLayoutTests(unittest.TestCase):
     def test_runtime_packages_and_scripts_are_declared(self):
         import tomllib
         config = tomllib.loads((RELEASE / "pyproject.toml").read_text())
-        self.assertEqual(config["tool"]["setuptools"]["packages"], ["tess_search", "tess_survey"])
-        self.assertEqual(config["project"]["scripts"]["tess-search"], "tess_search.cli:main")
-        self.assertEqual(config["project"]["scripts"]["tess-survey"], "tess_survey.run:main")
+        self.assertEqual(config["tool"]["setuptools"]["packages"], ["fbls", "fbls.survey"])
+        self.assertEqual(config["project"]["scripts"]["fbls"], "fbls.cli:main")
+        self.assertEqual(config["project"]["scripts"]["fbls-survey"], "fbls.survey.run:main")
         self.assertEqual(config["project"]["version"], __version__)
 
     def test_imports_stay_inside_runtime_and_declared_dependencies(self):
         allowed = {"argparse", "dataclasses", "json", "math", "numpy", "pathlib", "sys", "time", "torch", "triton"}
-        for path in (RELEASE / "tess_search").glob("*.py"):
+        for path in (RELEASE / "fbls").glob("*.py"):
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, ast.Import):
                     self.assertTrue(all(alias.name.split(".")[0] in allowed for alias in node.names), path)

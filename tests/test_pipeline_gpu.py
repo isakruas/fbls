@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
-from tess_search import SearchConfig, search_prepared, search_transits, detrending_windows
-from tess_search.core import NoiseModel, compare_search, correlated_noise_factors, gpu64
+from fbls import SearchConfig, search_prepared, search_transits, detrending_windows
+from fbls.core import NoiseModel, compare_search, correlated_noise_factors, gpu64
 
 
 def box(t, period, epoch, duration):

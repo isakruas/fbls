@@ -15,8 +15,8 @@ python3 -m venv .venv
 ## Use
 
 ```bash
-tess-search --input curve.npz --pmax 100 --output detections.json      # one star, JSON schema 3
-tess-survey --targets targets/targets_download.csv                      # search, cross-match, vetting, CTOI rows in public/
+fbls --input curve.npz --pmax 100 --output detections.json      # one star, JSON schema 3
+fbls-survey --targets targets/targets_download.csv                      # search, cross-match, vetting, CTOI rows in public/
 python targets/select_targets.py fetch-snapshots                        # catalog and MAST snapshots
 python targets/select_targets.py fetch-tic && python targets/select_targets.py select
 python targets/download.py --pilot && python targets/download.py --workers 4
