@@ -1,6 +1,7 @@
 """Supporting figure of a candidate for ExoFOP and the paper: the detrended light curve with the
 transits marked, the folded curve with the fitted trapezoid and its residuals, each transit on
-its own, odd against even transits, and the full orbit with the strongest secondary window."""
+its own, odd against even transits, the period maxima of the search above threshold, and the
+full orbit with the strongest secondary window."""
 import numpy as np
 
 from .vetting import trapezoid, wrap
@@ -19,7 +20,7 @@ def binned(x, y, width):
     return mean_x, mean_y, scatter
 
 
-def candidate_figure(prep, metrics, title, path):
+def candidate_figure(prep, metrics, title, path, maxima=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -89,7 +90,17 @@ def candidate_figure(prep, metrics, title, path):
     ax.set_xlabel("hours from mid-transit")
     ax.legend(fontsize=8, frameon=False)
 
-    ax = fig.add_subplot(grid[2, 2:])
+    ax = fig.add_subplot(grid[2, 2])
+    if maxima is not None and len(maxima[0]):
+        ax.plot(maxima[0], maxima[1], ".", color=DARK, ms=3)
+        ax.axvline(period, color=ORANGE, lw=1, alpha=.8, label=f"P = {period:.3f} d")
+        ax.set_xscale("log")
+        ax.legend(fontsize=8, frameon=False)
+    ax.set_xlabel("period (d)")
+    ax.set_ylabel("SNR")
+    ax.set_title("period maxima above threshold", fontsize=10)
+
+    ax = fig.add_subplot(grid[2, 3])
     orbit = wrap(phase + period / 2, period) / period + .5
     x, y, e = binned(orbit, flux, max(duration / period / 2, 1 / 400))
     ax.errorbar(x, y, e, fmt=".", color=DARK, ms=3, lw=.6)

@@ -263,6 +263,17 @@ def fpp_star(tic, root, search, vetting, pixel):
     return {"tic": int(tic), "events": out}
 
 
+def period_maxima(star, config):
+    """(period, SNR) of the period maxima above threshold: the detector run again on one star."""
+    import torch
+    from fbls import search_transits
+    from fbls.core import gpu64
+    result = search_transits(gpu64(star["time_bjd"]), gpu64(star["flux"]), gpu64(star["flux_err"]),
+                             torch.as_tensor(star["sector"], device="cuda").long(), config=config)
+    table = result.table.detach().cpu().numpy()
+    return table[:, 0], table[:, 3]
+
+
 def assemble(tic, root):
     """Final events of one star from the stage files: pixel result applied, FPP attached, tier set."""
     from .pixels import apply_pixel_test
@@ -331,7 +342,7 @@ def published_before(public, today):
 def publish(tics, root, public, author):
     """Cumulative `public/candidates.csv` and `public/ctoi.csv` (every star, current rules), plus the
     folder of the day with the stars first published today and, for each of its CTOI rows, the
-    supporting figure ExoFOP asks for. ExoFOP needs period, epoch, depth and duration for cTOI
+    supporting figure ExoFOP asks for (with the period maxima of a fresh detector run on that star). ExoFOP needs period, epoch, depth and duration for cTOI
     consideration, so single events stay in the candidate table only."""
     from .ctoi import COLUMNS
     from .figures import candidate_figure
@@ -361,7 +372,8 @@ def publish(tics, root, public, author):
                 m = e["metrics"]
                 title = (f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  "
                          f"{m['transits']} transits  {e['tier']}")
-                candidate_figure(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}.png")
+                maxima = period_maxima(star, search_config(read(root, "search", e["tic"])["config"]))
+                candidate_figure(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}.png", maxima)
     return len(everything), sum(len(g) for g in ctoi.values()), len(new)
 
 
