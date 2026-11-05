@@ -39,7 +39,7 @@ def ctoi_row(event, author):
     a_over_r, a_over_r_err = ((g["a_over_rstar_fit"], g["a_over_rstar_fit_err"]) if g.get("reliable")
                               else (m.get("a_over_rstar"), .1 * m["a_over_rstar"] if finite(m.get("a_over_rstar")) else None))
     fpp = event.get("fpp") or {}
-    notes = (f"tess-gpu-search blind search ({event.get('search', 'periodic')}); detector SNR {peak.get('snr', 0):.1f}, "
+    notes = (f"FBLS blind search ({event.get('search', 'periodic')}); detector SNR {peak.get('snr', 0):.1f}, "
              f"{m.get('transits')} transits; tier {event.get('tier')}; flags "
              f"{';'.join(f'{a}={b}' for a, b in m.get('flags', {}).items()) or 'none'}; "
              f"FPP {fpp.get('fpp')}; NFPP {fpp.get('nfpp')}; "
