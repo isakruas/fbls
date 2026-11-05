@@ -9,6 +9,15 @@ python targets/select_targets.py --source /path/to/snapshots select      # targe
 python targets/download.py --pilot                                       # pilot batch, then the full manifest
 ```
 
+```bash
+python targets/control_sample.py --source /path/to/snapshots --per-bin 50 --exclude dev_tics.json --copy
+```
+
+`control_sample.py` draws confirmed-planet hosts (TOI CP/KP and published transiting
+planets) from an existing cache, stratified by the longest planet period, excluding
+development stars, and copies their files into `data/` as the control group
+(`control_targets.csv`, `control_sources.json`).
+
 `--source` points at local snapshots of the official products: `manifests/sector-N.sh`
 (MAST bulk download scripts, one per sector), `catalogs/toi.json`, `catalogs/known.json`
 (CTOIs, published planets, TESS EBs, SPOC TCEs), `catalogs/exofop_toi.csv`, and the
