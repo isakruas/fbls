@@ -5,7 +5,8 @@
   vet      catalog cross-match, duplicates and vetting of every peak  -> data/survey/vetting/<tic>.json
   pixel    difference-image test of the signals that passed vetting   -> data/survey/pixel/<tic>.json
   fpp      TRICERATOPS for passing signals that are not catalogued    -> data/survey/fpp/<tic>.json
-  publish  tiers, candidate table and ExoFOP CTOI rows                -> public/candidates_YYYY-MM-DD.csv, ctoi_YYYY-MM-DD.csv
+  publish  tiers, candidate table and ExoFOP CTOI rows                -> public/candidates.csv, ctoi.csv (cumulative) and
+           public/YYYY-MM-DD/ (stars first published that day, with the figures of its CTOI rows)
 
 Only the search uses the GPU; the later stages read its files and can be
 repeated whenever a rule changes. A stage never overwrites an
@@ -283,39 +284,84 @@ def assemble(tic, root):
     return events
 
 
-def publish(tics, root, public, author):
-    """Candidate table (every vetted signal) and ExoFOP CTOI rows (new periodic candidates: ExoFOP needs
-    period, epoch, depth and duration for cTOI consideration, so single events stay in the table only)."""
-    from .ctoi import ctoi_row, COLUMNS
-    rows, ctoi_rows = [], []
+def candidate_rows(tics, root, author):
+    """Table row of every vetted signal and CTOI row of every new periodic candidate, per star."""
+    from .ctoi import ctoi_row
+    rows, ctoi = {}, {}
     for tic in tics:
         for e in assemble(tic, root):
             if "metrics" not in e:
                 continue
             m, peak, known = e["metrics"], e["peak"], e.get("known") or {}
-            rows.append({"tic": e["tic"], "search": e["search"], "tier": e["tier"], "known": known.get("name"),
-                         "known_source": known.get("source"), "known_disposition": known.get("disposition"),
-                         "period_days": m.get("period_days"), "epoch_bjd": m.get("epoch_bjd"),
-                         "duration_hours": m.get("duration_hours"), "depth_ppm": m.get("depth_ppm"),
-                         "radius_earth": m.get("radius_earth"), "detector_snr": peak.get("snr"), "vetting_snr": m.get("snr"),
-                         "transits": m.get("transits"), "planet_log_odds": peak.get("planet_log_odds"),
-                         "model_preferred": peak.get("model_preferred"), "fpp": (e.get("fpp") or {}).get("fpp"),
-                         "nfpp": (e.get("fpp") or {}).get("nfpp"),
-                         "pixel_offset_arcsec": (m.get("pixel_test") or {}).get("offset_arcsec"),
-                         "flags": ";".join(f"{k}={v}" for k, v in m.get("flags", {}).items())})
+            rows.setdefault(tic, []).append({
+                "tic": e["tic"], "signal": e["id"], "search": e["search"], "tier": e["tier"], "known": known.get("name"),
+                "known_source": known.get("source"), "known_disposition": known.get("disposition"),
+                "period_days": m.get("period_days"), "epoch_bjd": m.get("epoch_bjd"),
+                "duration_hours": m.get("duration_hours"), "depth_ppm": m.get("depth_ppm"),
+                "radius_earth": m.get("radius_earth"), "detector_snr": peak.get("snr"), "vetting_snr": m.get("snr"),
+                "transits": m.get("transits"), "planet_log_odds": peak.get("planet_log_odds"),
+                "model_preferred": peak.get("model_preferred"), "fpp": (e.get("fpp") or {}).get("fpp"),
+                "nfpp": (e.get("fpp") or {}).get("nfpp"),
+                "pixel_offset_arcsec": (m.get("pixel_test") or {}).get("offset_arcsec"),
+                "flags": ";".join(f"{k}={v}" for k, v in m.get("flags", {}).items())})
             if e.get("known") is None and e["search"] == "periodic" and e["tier"].startswith(("strong", "candidate")):
-                ctoi_rows.append(ctoi_row(e, author))
-    rows.sort(key=lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0)))
+                ctoi.setdefault(tic, []).append((e, ctoi_row(e, author)))
+    return rows, ctoi
+
+
+def write_csv(path, fieldnames, rows):
+    with Path(path).open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def published_before(public, today):
+    """Stars already listed in an earlier day's folder."""
+    seen = set()
+    for day in sorted(Path(public).glob("*-*-*")):
+        if day.name == today or not (day / "candidates.csv").exists():
+            continue
+        with (day / "candidates.csv").open() as f:
+            seen.update(int(r["tic"]) for r in csv.DictReader(f))
+    return seen
+
+
+def publish(tics, root, public, author):
+    """Cumulative `public/candidates.csv` and `public/ctoi.csv` (every star, current rules), plus the
+    folder of the day with the stars first published today and, for each of its CTOI rows, the
+    supporting figure ExoFOP asks for. ExoFOP needs period, epoch, depth and duration for cTOI
+    consideration, so single events stay in the candidate table only."""
+    from .ctoi import COLUMNS
+    from .figures import candidate_figure
+    from .star import load_star
     public = Path(public)
     public.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    for name, fieldnames, content in (("candidates", list(rows[0]) if rows else None, rows), ("ctoi", COLUMNS, ctoi_rows)):
-        if content:
-            with (public / f"{name}_{today}.csv").open("w", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=fieldnames)
-                w.writeheader()
-                w.writerows(content)
-    return len(rows), len(ctoi_rows)
+    rows, ctoi = candidate_rows(tics, root, author)
+    order = lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0))
+    everything = sorted((r for group in rows.values() for r in group), key=order)
+    if everything:
+        write_csv(public / "candidates.csv", list(everything[0]), everything)
+    write_csv(public / "ctoi.csv", COLUMNS, [row for group in ctoi.values() for _, row in group])
+    seen = published_before(public, today)
+    new = [tic for tic in rows if tic not in seen]
+    day = public / today
+    if new:
+        day.mkdir(exist_ok=True)
+        write_csv(day / "candidates.csv", list(everything[0]), sorted((r for t in new for r in rows[t]), key=order))
+        new_ctoi = [(e, row) for t in new for e, row in ctoi.get(t, [])]
+        if new_ctoi:
+            write_csv(day / "ctoi.csv", COLUMNS, [row for _, row in new_ctoi])
+            (day / "figures").mkdir(exist_ok=True)
+            for e, _ in new_ctoi:
+                star = load_star(root, e["tic"])
+                prep = folded(star, load_residuals(root, e["tic"]), e["peak"], [tuple(m) for m in e["masks"]])
+                m = e["metrics"]
+                title = (f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  "
+                         f"{m['transits']} transits  {e['tier']}")
+                candidate_figure(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}.png")
+    return len(everything), sum(len(g) for g in ctoi.values()), len(new)
 
 
 def run_stage(stage, tics, args):
@@ -388,8 +434,8 @@ def main():
     if not tics:
         parser.error("give --targets or --tic")
     if args.stage == "publish":
-        rows, new = publish(tics, args.root, args.public, args.author)
-        print(f"public: {rows} vetted signals, {new} new CTOI rows")
+        rows, ctoi, new = publish(tics, args.root, args.public, args.author)
+        print(f"public: {rows} vetted signals, {ctoi} CTOI rows, {new} stars first published today")
     elif args.workers > 1 and args.shard is None:
         children = [subprocess.Popen([sys.executable, "-m", "fbls.survey.run", *sys.argv[1:], "--shard", str(k)]) for k in range(args.workers)]
         for child in children:

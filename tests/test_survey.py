@@ -122,5 +122,27 @@ class FunnelTest(unittest.TestCase):
         self.assertFalse(passing(dict(event, search="single")))
 
 
+
+class FigureTest(unittest.TestCase):
+    def test_candidate_figure_is_written(self):
+        import tempfile
+        from pathlib import Path
+        import numpy as np
+        from fbls.survey.figures import candidate_figure
+        from fbls.survey.vetting import fold, trapezoid
+        rng = np.random.default_rng(0)
+        time = np.arange(0, 54, 2 / 1440)
+        period, epoch, duration = 10., 3., 3 / 24
+        phase = (time - epoch + period / 2) % period - period / 2
+        flux = trapezoid(phase, 1e-3, duration, .2) + rng.normal(0, 3e-4, len(time))
+        prep = fold(time, flux, np.zeros(len(time)), period, epoch, duration * 24)
+        metrics = {"depth_ppm": 1000., "duration_hours": 3., "fitted_duration_hours": 3.1, "ingress_fraction": .2,
+                   "odd_even_sigma": .3, "secondary_phase": .5, "secondary_sigma": .4}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "figure.png"
+            candidate_figure(prep, metrics, "test", path)
+            self.assertGreater(path.stat().st_size, 10000)
+
+
 if __name__ == "__main__":
     unittest.main()
