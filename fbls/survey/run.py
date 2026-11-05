@@ -149,10 +149,12 @@ def vet_star(tic, root, snapshots, search):
     from .star import load_star
     from .catalog import known_by_star, match_known, match_single, known_masks
     from .vetting import measure
-    star = load_star(root, tic)
-    residuals = detrended(star, search_config(search["config"]))
-    known = known_by_star(str(snapshots)).get(int(tic), [])
     peaks = search["peaks"]
+    if not peaks and not search["single_events"]:
+        return {"tic": int(tic), "baseline_days": search["baseline_days"], "events": []}
+    star = load_star(root, tic)
+    residuals = detrended(star, search_config(search["config"])) if peaks else []
+    known = known_by_star(str(snapshots)).get(int(tic), [])
     parents = [related_peak(peak, peaks[:i]) for i, peak in enumerate(peaks)]
     events = []
     for i, peak in enumerate(peaks):
