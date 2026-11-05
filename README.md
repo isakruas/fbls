@@ -19,7 +19,7 @@ fbls --input curve.npz --pmax 100 --output detections.json      # one star, JSON
 fbls-survey search --targets targets/targets_download.csv --workers 4     # GPU search, N processes -> data/survey/search/
 fbls-survey vet --targets ...                                   # cross-match, duplicates, vetting -> data/survey/vetting/
 fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... # only for signals that passed the stage before
-fbls-survey publish --targets ...                               # public/candidates.csv, ctoi.csv; public/<day>/ with figures
+fbls-survey publish --targets ...                               # public/candidates.csv, ctoi.csv; public/<day>/figures/<tic>_<signal>/ one file per panel
 python targets/select_targets.py fetch-snapshots                        # catalog and MAST snapshots
 python targets/select_targets.py fetch-tic && python targets/select_targets.py select
 python targets/download.py --pilot && python targets/download.py --workers 4

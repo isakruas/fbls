@@ -124,11 +124,11 @@ class FunnelTest(unittest.TestCase):
 
 
 class FigureTest(unittest.TestCase):
-    def test_candidate_figure_is_written(self):
+    def test_candidate_figures_are_written(self):
         import tempfile
         from pathlib import Path
         import numpy as np
-        from fbls.survey.figures import candidate_figure
+        from fbls.survey.figures import candidate_figures
         from fbls.survey.vetting import fold, trapezoid
         rng = np.random.default_rng(0)
         time = np.arange(0, 54, 2 / 1440)
@@ -139,9 +139,10 @@ class FigureTest(unittest.TestCase):
         metrics = {"depth_ppm": 1000., "duration_hours": 3., "fitted_duration_hours": 3.1, "ingress_fraction": .2,
                    "odd_even_sigma": .3, "secondary_phase": .5, "secondary_sigma": .4}
         with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "figure.png"
-            candidate_figure(prep, metrics, "test", path)
-            self.assertGreater(path.stat().st_size, 10000)
+            written = candidate_figures(prep, metrics, "test", Path(folder) / "1_0", (np.array([5., 10.]), np.array([7.5, 12.])))
+            self.assertEqual([p.name for p in written],
+                             ["light_curve.png", "folded.png", "transits.png", "odd_even.png", "period_maxima.png", "orbit.png"])
+            self.assertTrue(all(p.stat().st_size > 5000 for p in written))
 
 
 if __name__ == "__main__":

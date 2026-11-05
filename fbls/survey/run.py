@@ -345,7 +345,7 @@ def publish(tics, root, public, author):
     supporting figure ExoFOP asks for (with the period maxima of a fresh detector run on that star). ExoFOP needs period, epoch, depth and duration for cTOI
     consideration, so single events stay in the candidate table only."""
     from .ctoi import COLUMNS
-    from .figures import candidate_figure
+    from .figures import candidate_figures
     from .star import load_star
     public = Path(public)
     public.mkdir(parents=True, exist_ok=True)
@@ -365,7 +365,6 @@ def publish(tics, root, public, author):
         new_ctoi = [(e, row) for t in new for e, row in ctoi.get(t, [])]
         if new_ctoi:
             write_csv(day / "ctoi.csv", COLUMNS, [row for _, row in new_ctoi])
-            (day / "figures").mkdir(exist_ok=True)
             for e, _ in new_ctoi:
                 star = load_star(root, e["tic"])
                 prep = folded(star, load_residuals(root, e["tic"]), e["peak"], [tuple(m) for m in e["masks"]])
@@ -373,7 +372,7 @@ def publish(tics, root, public, author):
                 title = (f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  "
                          f"{m['transits']} transits  {e['tier']}")
                 maxima = period_maxima(star, search_config(read(root, "search", e["tic"])["config"]))
-                candidate_figure(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}.png", maxima)
+                candidate_figures(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}", maxima)
     return len(everything), sum(len(g) for g in ctoi.values()), len(new)
 
 
