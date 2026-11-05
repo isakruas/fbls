@@ -1,4 +1,4 @@
-# tess-gpu-search
+# FBLS
 
 FBLS, a multi-pass box least squares transit search with duration families
 and a fused GPU kernel, for TESS light curves; with the survey layer that

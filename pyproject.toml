@@ -3,7 +3,7 @@ requires = ["setuptools>=70"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tess-gpu-search"
+name = "fbls"
 version = "0.5.0"
 description = "FBLS: multi-pass fused box least squares transit search on the GPU, with a TESS survey layer"
 readme = "README.md"
