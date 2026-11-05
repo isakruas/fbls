@@ -5,12 +5,14 @@ from pathlib import Path
 import numpy as np
 
 
-def load_star(root, tic, sectors=None):
-    """Concatenated sectors of a star: time, flux, flux_err, centroids, sector labels and per-sector metadata."""
+# Sectors searched per star: the most recent ones. Eight sectors hold two transits of any period up to 100 days.
+SEARCH_SECTORS = 8
+
+
+def load_star(root, tic):
+    """The most recent SEARCH_SECTORS sectors of a star: time, flux, flux_err, centroids, sector labels, metadata."""
     folder = Path(root) / "curves" / str(tic)
-    files = sorted(folder.glob("sector-*.npz"), key=lambda p: int(p.stem.split("-")[1]))
-    if sectors is not None:
-        files = [p for p in files if int(p.stem.split("-")[1]) in set(sectors)]
+    files = sorted(folder.glob("sector-*.npz"), key=lambda p: int(p.stem.split("-")[1]))[-SEARCH_SECTORS:]
     if not files:
         raise FileNotFoundError(f"no light curves for TIC {tic}")
     arrays = {k: [] for k in ("time_bjd", "flux", "flux_err", "centr1", "centr2", "sector")}
