@@ -2,9 +2,9 @@
 
 Runs the detector on every star of the group (all cached sectors), then matches
 the catalog planets of each star to the reported peaks with the survey rules:
-relative period error at most D / (2 B) and the catalog epoch, propagated to the
-observing midpoint, within D/2 plus the propagated period discrepancy. Coverage
-requires at least two sampled transit epochs with three observations each.
+period within 1% and predicted transits coinciding, within one duration, with
+at least half of the catalog transits sampled in the data. Coverage requires at
+least two sampled transit epochs with three observations each.
 Reports are written per star under `data/evaluation/<group>/` and summarized in
 `recovery.json`; the control group must be evaluated once, with the frozen
 detector, and never used for tuning.
@@ -52,18 +52,27 @@ def planets_of(tic, snapshots):
     return rows
 
 
-def rank_of(candidates, target, baseline, midpoint):
+def rank_of(candidates, target, time):
+    """Rank of the first candidate whose period is within 1% of the catalog period and whose predicted
+    transits coincide, within one duration, with at least half of the catalog transits sampled in the
+    data. Event-based matching tolerates transit-timing variations and the period precision of few
+    transits; harmonics receive no credit."""
     p, e, h = target["period"], target["epoch"], target["duration_hours"]
     if not finite(e) or not finite(h) or not candidates:
         return None
-    cycles = round((midpoint - e) / p)
-    epoch = e + cycles * p
+    d = h / 24
+    cycles = np.arange(np.ceil((time[0] - e) / p), np.floor((time[-1] - e) / p) + 1)
+    transits = e + cycles * p
+    sampled = np.array([np.sum(np.abs(time - t) <= d / 2) >= 3 for t in transits])
+    transits = transits[sampled]
+    if not len(transits):
+        return None
     for rank, c in enumerate(candidates, 1):
-        cp, ce = c["period_days"], c["epoch_bjd"]
-        if abs(cp / p - 1) > h / 24 / (2 * baseline):
+        if abs(c["period_days"] / p - 1) > .01:
             continue
-        predicted = ce + round((epoch - ce) / cp) * cp
-        if abs(predicted - epoch) <= h / 48 + abs(cycles) * abs(cp - p):
+        shift = (transits - c["epoch_bjd"]) / c["period_days"]
+        offsets = np.abs(shift - np.round(shift)) * c["period_days"]
+        if np.mean(offsets <= d) >= .5:
             return rank
     return None
 
@@ -88,16 +97,14 @@ def evaluate_star(tic, root, snapshots, config):
                              torch.as_tensor(star["sector"], device="cuda").long(), config=config)
     time_all = star["time_bjd"]
     baseline = float(time_all[-1] - time_all[0])
-    midpoint = float((time_all[0] + time_all[-1]) / 2)
     out = []
     for target in planets_of(tic, snapshots):
         row = dict(target, tic=int(tic), sectors=len(set(star["sector"].astype(int))), baseline_days=baseline,
                    in_range=.5 <= target["period"] <= config.period_max, sampled_events=sampled_events(time_all, target))
         row["eligible"] = bool(row["in_range"] and row["sampled_events"] is not None and row["sampled_events"] >= 2)
         for method, ranking in (("signal", "signal"), ("model", "planet")):
-            row[method + "_rank"] = rank_of(result.candidates(ranking=ranking), target, baseline, midpoint)
-        hit = next((c for c in result.candidates(ranking="signal")
-                    if rank_of([c], target, baseline, midpoint)), None)
+            row[method + "_rank"] = rank_of(result.candidates(ranking=ranking), target, time_all)
+        hit = next((c for c in result.candidates(ranking="signal") if rank_of([c], target, time_all)), None)
         if hit:
             row["hit"] = {k: hit.get(k) for k in ("period_days", "duration_hours", "snr", "depth_ppm", "events", "pass", "planet_log_odds", "model_preferred")}
         out.append(row)
