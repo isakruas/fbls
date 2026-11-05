@@ -137,30 +137,14 @@ def residuals_path(root, tic):
     return Path(root) / FOLDERS["search"] / f"{tic}.npz"
 
 
-def save_residuals(root, tic, star, config, peaks, table=None):
-    """Detrended residuals of the families the peaks use, so the later stages need no GPU, and the
-    period maxima above threshold (period, SNR) of the first pass when the search table is given."""
+def save_residuals(root, tic, star, config, peaks):
+    """Detrended residuals of the families the peaks use, so the later stages need no GPU."""
     residuals = detrended(star, config)
     used = sorted({family_index(residuals, p) for p in peaks})
     arrays = {f"family_{i}": residuals[i][2].astype(np.float32) for i in used}
     arrays["bounds"] = np.array([[residuals[i][0], residuals[i][1]] for i in used])
-    if table is not None and len(table):
-        values = table.detach().cpu().numpy()
-        arrays["maxima_period"] = values[:, 0].astype(np.float32)
-        arrays["maxima_snr"] = values[:, 3].astype(np.float32)
     residuals_path(root, tic).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(residuals_path(root, tic), **arrays)
-
-
-def load_maxima(root, tic):
-    """(period, SNR) of the stored period maxima, or None for stars searched before they were saved."""
-    path = residuals_path(root, tic)
-    if not path.exists():
-        return None
-    with np.load(path) as data:
-        if "maxima_period" not in data.files:
-            return None
-        return data["maxima_period"].astype(float), data["maxima_snr"].astype(float)
 
 
 def load_residuals(root, tic):
@@ -187,7 +171,7 @@ def search_star(tic, root, config):
                              torch.as_tensor(star["sector"], device="cuda").long(), config=config)
     peaks = result.candidates(ranking="signal")
     if peaks:
-        save_residuals(root, tic, star, result.config, peaks, result.table)
+        save_residuals(root, tic, star, result.config, peaks)
     return {"tic": int(tic), "config": result.config.__dict__, "baseline_days": float(star["time_bjd"][-1] - star["time_bjd"][0]),
             "statistics": {k: v for k, v in result.statistics.items()
                            if k in ("observations", "baseline_days", "periods_tested", "resolved_peaks", "single_events", "seconds_total")},
@@ -377,7 +361,7 @@ def publish(tics, root, public, author):
                 m = e["metrics"]
                 title = (f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  "
                          f"{m['transits']} transits  {e['tier']}")
-                candidate_figure(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}.png", load_maxima(root, e["tic"]))
+                candidate_figure(prep, m, title, day / "figures" / f"{e['tic']}_{e['id']}.png")
     return len(everything), sum(len(g) for g in ctoi.values()), len(new)
 
 
