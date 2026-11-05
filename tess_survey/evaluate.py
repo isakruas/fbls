@@ -1,9 +1,10 @@
 """Blind recovery of catalogued planets over a labeled star group.
 
-Runs the detector on every star of the group (all cached sectors), then matches
-the catalog planets of each star to the reported peaks with the survey rules:
-period within 1% and predicted transits coinciding, within one duration, with
-at least half of the catalog transits sampled in the data. Coverage requires at
+Runs the detector on every star of the group (the eight most recent sectors), then
+matches the catalog planets of each star to the reported peaks by transit times:
+the candidate's predicted transits must coincide, within one duration, with the
+catalog transits sampled in the data; a period that disagrees is recorded as
+ambiguous (few transits separated by long gaps admit several periods). Coverage requires at
 least two sampled transit epochs with three observations each.
 Reports are written per star under `data/evaluation/<group>/` and summarized in
 `recovery.json`; the control group must be evaluated once, with the frozen
@@ -55,31 +56,47 @@ def planets_of(tic, snapshots):
     return rows
 
 
+def sampled_transits(time, period, epoch, duration):
+    """Transit times of an ephemeris that fall on at least three observations."""
+    cycles = np.arange(np.ceil((time[0] - epoch) / period), np.floor((time[-1] - epoch) / period) + 1)
+    transits = epoch + cycles * period
+    sampled = np.array([np.sum(np.abs(time - t) <= duration / 2) >= 3 for t in transits], dtype=bool)
+    return transits[sampled], cycles[sampled]
+
+
+def coincident(times, others, tolerance):
+    """Fraction of `times` within `tolerance` of some entry of `others`."""
+    if not len(times) or not len(others):
+        return 0.
+    gaps = np.min(np.abs(times[:, None] - others[None, :]), axis=1)
+    return float(np.mean(gaps <= tolerance))
+
+
 def rank_of(candidates, target, time):
-    """Rank of the first candidate whose period is within 1% of the catalog period and whose transits
-    coincide, within one duration, with at least half of the catalog transits sampled in the data.
-    The catalog period is anchored at the detected epoch, so the limited precision of a period grid
-    over a multi-year baseline does not count against the detection; the tolerance grows with the
-    propagated 3-sigma error of the catalog ephemeris, up to a quarter period; the coincidence
-    fraction tolerates transit-timing variations. Harmonics receive no credit."""
+    """Rank of the first candidate whose transits are the catalog transits: at least half of the
+    catalog transits sampled in the data coincide, within one duration, with a predicted transit of
+    the candidate, and more than half of the candidate's sampled transits coincide with catalog
+    transits. The period is not required to agree: with few transits in data separated by long gaps,
+    several periods place transits on the same events and the catalog period (from more data) is
+    only one of them; the hit records whether the period agrees within 1%. The tolerance grows with
+    the propagated 3-sigma error of the catalog ephemeris, up to a quarter period; the coincidence
+    fractions tolerate transit-timing variations. A harmonic that predicts extra transits on
+    observed, flat data fails the second condition."""
     p, e, h = target["period"], target["epoch"], target["duration_hours"]
     if not finite(e) or not finite(h) or not candidates:
         return None
     d = h / 24
-    cycles = np.arange(np.ceil((time[0] - e) / p), np.floor((time[-1] - e) / p) + 1)
-    transits = e + cycles * p
-    sampled = np.array([np.sum(np.abs(time - t) <= d / 2) >= 3 for t in transits])
-    transits, cycles = transits[sampled], cycles[sampled]
+    transits, cycles = sampled_transits(time, p, e, d)
     if not len(transits):
         return None
     drift = 3 * np.hypot(np.abs(cycles) * (target.get("period_err") or 0.), target.get("epoch_err") or 0.)
     tolerance = d + np.minimum(drift, p / 4)
     for rank, c in enumerate(candidates, 1):
-        if abs(c["period_days"] / p - 1) > .01:
+        predicted, _ = sampled_transits(time, c["period_days"], c["epoch_bjd"], max(d, c["duration_hours"] / 24))
+        if not len(predicted):
             continue
-        shift = (transits - c["epoch_bjd"]) / p
-        offsets = np.abs(shift - np.round(shift)) * p
-        if np.mean(offsets <= tolerance) >= .5:
+        gaps = np.min(np.abs(transits[:, None] - predicted[None, :]), axis=1)
+        if np.mean(gaps <= tolerance) >= .5 and coincident(predicted, transits, float(tolerance.max())) > .5:
             return rank
     return None
 
@@ -109,6 +126,7 @@ def match(peaks, targets, time_all, sectors, baseline, config_pmax):
         hit = next((c for c in ranked(peaks, "signal") if rank_of([c], target, time_all)), None)
         if hit:
             row["hit"] = {k: hit.get(k) for k in ("period_days", "duration_hours", "snr", "depth_ppm", "events", "pass", "planet_log_odds", "model_preferred")}
+            row["hit"]["period_match"] = bool(abs(hit["period_days"] / target["period"] - 1) < .01)
         out.append(row)
     return out
 
@@ -172,6 +190,7 @@ def summarize(folder):
             for n in (1, 5, 20):
                 entry[f"{method}_top{n}"] = sum(r[method + "_rank"] is not None and r[method + "_rank"] <= n for r in group)
         entry["model_preferred"] = sum(bool((r.get("hit") or {}).get("model_preferred")) for r in group)
+        entry["period_ambiguous"] = sum(bool(r.get("hit")) and not r["hit"]["period_match"] for r in group)
         entry["by_period"] = {f"{lo:g}-{hi:g}": {
             "eligible": sum(lo <= r["period"] < hi or (hi == 100. and r["period"] == hi) for r in group),
             "signal_top20": sum((lo <= r["period"] < hi or (hi == 100. and r["period"] == hi)) and r["signal_rank"] is not None and r["signal_rank"] <= 20 for r in group)}
@@ -193,6 +212,7 @@ def main():
     parser.add_argument("--pmax", type=float, default=100.)
     parser.add_argument("--workers", type=int, default=1, help="Concurrent processes sharing the GPU")
     parser.add_argument("--shard", type=int, default=0)
+    parser.add_argument("--prescan-factor", type=int, default=1, help="Coarse period grid factor of the prescan (1 = exhaustive)")
     parser.add_argument("--report-only", action="store_true")
     args = parser.parse_args()
     folder = args.root / "evaluation" / args.name
@@ -208,14 +228,16 @@ def main():
     if args.workers > 1 and args.shard == 0 and "--shard" not in sys.argv:
         children = [subprocess.Popen([sys.executable, "-m", "tess_survey.evaluate", "--group", str(args.group), "--name", args.name,
                                       "--root", str(args.root), "--snapshots", str(args.snapshots), "--pmax", str(args.pmax),
-                                      "--workers", str(args.workers), "--shard", str(k)]) for k in range(args.workers)]
+                                      "--workers", str(args.workers), "--shard", str(k), "--prescan-factor", str(args.prescan_factor)])
+                    for k in range(args.workers)]
         for child in children:
             child.wait()
         report = summarize(folder)
         print(json.dumps(report["counts"], indent=1))
         print("missed planets:", len(report["missed_planets"]))
         return
-    config = SearchConfig(period_max=args.pmax, durations_hours=tuple(round(.5 * 1.25 ** i, 6) for i in range(19)))
+    config = SearchConfig(period_max=args.pmax, durations_hours=tuple(round(.5 * 1.25 ** i, 6) for i in range(19)),
+                          prescan_factor=args.prescan_factor)
     mine = [t for i, t in enumerate(tics) if i % args.workers == args.shard and not (folder / f"{t}.json").exists()]
     for n, tic in enumerate(mine, 1):
         started = time.perf_counter()
