@@ -284,6 +284,7 @@ def command_select(args):
             excluded_rows.append({"tic_id": t, "reason": f"contratio {contamination:.3f}", "n_sectors": len(sectors)})
             continue
         run = longest_run(sectors.keys())
+        chosen = sorted(run)[-args.max_sectors:] if args.contiguous else sorted(sectors)
         starts = sorted(datetime.fromisoformat(v[2]) for v in sectors.values())
         baseline = (starts[-1] - starts[0]).days + SECTOR_DAYS
         n = len(sectors)
@@ -300,10 +301,11 @@ def command_select(args):
             "stellar_radius": r.get("rad"), "stellar_mass": r.get("mass"), "stellar_logg": r.get("logg"),
             "distance_pc": r.get("d"), "contamination_ratio": contamination, "n_sectors": n,
             "sectors": " ".join(str(s) for s in sorted(sectors)), "longest_contiguous_sectors": len(run),
+            "search_sectors": " ".join(str(s) for s in chosen), "n_search_sectors": len(chosen),
             "baseline_days_estimate": round(baseline, 1), "observed_days_estimate": round(n * SECTOR_DAYS, 1),
             "valid_points_estimate": int(n * 18000), "cadence_seconds": 120, "photometric_source": "SPOC PDCSAP",
             "priority": priority, "catalog_match_status": "no match in TOI, CTOI, planets, EB, TCE",
-            "quality_status": "pending download", "estimated_download_mb": round(n * 2.0, 1),
+            "quality_status": "pending download", "estimated_download_mb": round(len(chosen) * 2.0, 1),
         })
     counts["candidates after criteria"] = len(candidates)
     # Deterministic, catalog-agnostic sample: a seeded shuffle within each priority keeps the sector-count
@@ -334,7 +336,7 @@ def command_select(args):
         w.writerow(["tic_id", "sector", "product_type", "product_source", "cadence_seconds", "mast_obsid",
                     "mast_product_uri", "download_url", "mirror_url", "filename", "file_size_bytes", "checksum", "pilot"])
         for c in selected:
-            for sector in sorted(table[c["tic_id"]]):
+            for sector in (int(x) for x in c["search_sectors"].split()):
                 filename, url, _ = table[c["tic_id"]][sector]
                 t = f"{c['tic_id']:016d}"
                 mirror = (f"https://stpubdata.s3.amazonaws.com/tess/public/tid/s{sector:04d}/"
@@ -365,6 +367,8 @@ def command_select(args):
                             "contamination": "contratio <= 0.2 when present", "sectors": ">= 2 SPOC 120 s sectors",
                             "priority": {"A": "8 <= Tmag < 10 and >= 4 sectors", "B": "10 <= Tmag <= 12 and >= 3 sectors", "C": ">= 2 sectors"},
                             "ordering": f"seeded shuffle within priority (seed {args.seed})",
+                            "search_window": (f"longest contiguous sector run, at most {args.max_sectors} most recent sectors"
+                                              if args.contiguous else "all sectors"),
                             "quota": QUOTA},
     }
     (OUT / "catalog_sources.json").write_text(json.dumps(sources, indent=2) + "\n")
@@ -374,7 +378,8 @@ def command_select(args):
     lines += [f"| {k} | {v} |" for k, v in sorted(counts.items())]
     lines += ["", "| Priority | Available | Selected |", "|---|---:|---:|"]
     lines += [f"| {p} | {counts[f'available priority {p}']} | {taken[p]} |" for p in ("A", "B", "C")]
-    lines += ["", f"Selected: {len(selected)} stars, {sum(c['n_sectors'] for c in selected)} sector products, "
+    lines += ["", f"Selected: {len(selected)} stars, {sum(c['n_search_sectors'] for c in selected)} sector products "
+              f"({'longest contiguous run, at most ' + str(args.max_sectors) + ' most recent sectors' if args.contiguous else 'all sectors'}), "
               f"~{sum(c['estimated_download_mb'] for c in selected) / 1024:.1f} GB; pilot batch: {len(pilot)} stars.", "",
               "Limitations:", *[f"- {x}" for x in sources["limitations"]]]
     (OUT / "selection_report.md").write_text("\n".join(lines) + "\n")
@@ -396,6 +401,8 @@ def main():
     select = sub.add_parser("select")
     select.add_argument("--pilot", type=int, default=10)
     select.add_argument("--seed", type=int, default=20261105, help="Seed of the within-priority shuffle")
+    select.add_argument("--contiguous", action="store_true", help="Download only the longest run of consecutive sectors per star")
+    select.add_argument("--max-sectors", type=int, default=8, help="Most recent sectors kept from the contiguous run")
     select.set_defaults(run=command_select)
     args = parser.parse_args()
     global SOURCE
