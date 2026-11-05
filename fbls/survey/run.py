@@ -1,20 +1,22 @@
-"""Blind survey: detector, catalog cross-match, vetting, tiers and dated public candidate files.
+"""Blind survey in stages, each one consuming the previous stage's files and skipping work already done.
 
-For every star of a target list: run the GPU search on all sectors, measure each
-accepted peak with the other peaks masked (vetting on the detector's own
-detrended family), cross-match against the catalog snapshots, run the pixel
-difference-image test and TRICERATOPS (false positive probability) for new candidates.
-Results: one JSON per star under `data/reports/`, and under `public/` the dated
-tables `candidates_YYYY-MM-DD.csv` (every vetted signal processed that day),
-`ctoi_YYYY-MM-DD.csv` (new candidates in the ExoFOP CTOI layout). A star is
-processed once, so its candidates appear only on the day it was processed.
-Catalog information is used only after the search.
+  search   FBLS on the GPU: peaks and single events per star          -> data/search/<tic>.json
+  vet      catalog cross-match, duplicates and vetting of every peak  -> data/vetting/<tic>.json
+  pixel    difference-image test of the signals that passed vetting   -> data/pixel/<tic>.json
+  fpp      TRICERATOPS for passing signals that are not catalogued    -> data/fpp/<tic>.json
+  publish  tiers, candidate table and ExoFOP CTOI rows                -> public/candidates_YYYY-MM-DD.csv, ctoi_YYYY-MM-DD.csv
+
+Only the search costs GPU hours; the later stages re-detrend the light curve in
+seconds and can be repeated whenever a rule changes. A stage never overwrites an
+existing output. Catalog information is used only after the search.
 
 Usage:
-  fbls-survey --targets targets/targets_download.csv [--no-fpp] [--no-pixel]
-  fbls-survey --tic 123456789
+  fbls-survey search --targets targets/targets_download.csv
+  fbls-survey vet --targets targets/targets_download.csv
+  fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... ; fbls-survey publish --targets ...
 """
 import argparse
+import copy
 import csv
 import json
 import math
@@ -27,6 +29,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 AUTHOR = "Isak Paulo de Andrade Ruas"
 TIER_ORDER = ("strong", "candidate", "inconclusive", "rejected", "duplicate")
+STAGES = ("search", "vet", "pixel", "fpp", "publish")
+FOLDERS = {"search": "search", "vet": "vetting", "pixel": "pixel", "fpp": "fpp"}
 
 
 def json_safe(value):
@@ -41,6 +45,25 @@ def json_safe(value):
     if isinstance(value, np.ndarray):
         return json_safe(value.tolist())
     return value
+
+
+def read(root, stage, tic):
+    path = Path(root) / FOLDERS[stage] / f"{tic}.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def write(root, stage, tic, payload):
+    folder = Path(root) / FOLDERS[stage]
+    folder.mkdir(parents=True, exist_ok=True)
+    payload = dict(payload, processed_utc=datetime.now(timezone.utc).isoformat())
+    (folder / f"{tic}.json").write_text(json.dumps(json_safe(payload), indent=1) + "\n")
+
+
+def search_config(stored=None, pmax=100.):
+    from fbls import SearchConfig
+    if stored is None:
+        return SearchConfig(period_max=pmax, durations_hours=tuple(round(.5 * 1.25 ** i, 6) for i in range(19)))
+    return SearchConfig(**{k: tuple(v) if isinstance(v, list) else v for k, v in stored.items()})
 
 
 def related_peak(peak, stronger):
@@ -75,20 +98,15 @@ def tier(event):
     return "candidate: no FPP" if preferred else "inconclusive: binary-like evidence"
 
 
-def star_events(tic, root, config, snapshots, fpp=False, pixel=True):
-    """Detector peaks of one star with vetting, cross-match, pixel test and FPP."""
+def rank(label):
+    return next((i for i, o in enumerate(TIER_ORDER) if label.startswith(o)), len(TIER_ORDER))
+
+
+def detrended(star, config):
+    """Per-family detrended residuals, (shortest duration, longest duration, residual array) each."""
     import torch
-    from fbls import search_transits
     from fbls.core import prepare_families, gpu64
-    from .star import load_star
-    from .catalog import known_by_star, match_known, match_single, known_masks
-    from .vetting import fold, measure
-    from .pixels import pixel_test, apply_pixel_test
-    from .fpp import fpp_job
-    star = load_star(root, tic)
     time_t = gpu64(star["time_bjd"])
-    result = search_transits(time_t, gpu64(star["flux"]), gpu64(star["flux_err"]),
-                             torch.as_tensor(star["sector"], device="cuda").long(), config=config)
     durations = gpu64(config.durations_hours) / 24
     families = prepare_families(time_t, gpu64(star["flux"]), gpu64(star["flux_err"]),
                                 torch.as_tensor(star["sector"], device="cuda").long(), durations,
@@ -102,72 +120,137 @@ def star_events(tic, root, config, snapshots, fpp=False, pixel=True):
         corrected = np.full(len(star["time_bjd"]), np.nan)
         corrected[np.clip(position, 0, len(corrected) - 1)] = curve.flux.cpu().numpy()
         residuals.append((float(durations[indices].min()), float(durations[indices].max()), corrected))
+    return residuals
+
+
+def folded(star, residuals, peak, masks):
+    """Phase-folded detrended curve of one peak, from the family closest to its duration."""
+    from .vetting import fold
+    d = peak["duration_hours"] / 24
+    corrected = min(residuals, key=lambda r: abs(math.log((r[0] * r[1]) ** .5 / d)))[2]
+    return fold(star["time_bjd"], corrected, star["sector"], peak["period_days"], peak["epoch_bjd"], peak["duration_hours"], masks)
+
+
+def search_star(tic, root, config):
+    import torch
+    from fbls import search_transits
+    from fbls.core import gpu64
+    from .star import load_star
+    star = load_star(root, tic)
+    result = search_transits(gpu64(star["time_bjd"]), gpu64(star["flux"]), gpu64(star["flux_err"]),
+                             torch.as_tensor(star["sector"], device="cuda").long(), config=config)
+    return {"tic": int(tic), "config": result.config.__dict__, "baseline_days": float(star["time_bjd"][-1] - star["time_bjd"][0]),
+            "statistics": {k: v for k, v in result.statistics.items()
+                           if k in ("observations", "baseline_days", "periods_tested", "resolved_peaks", "single_events", "seconds_total")},
+            "peaks": result.candidates(ranking="signal"), "single_events": result.single_events}
+
+
+def vet_star(tic, root, snapshots, search):
+    from .star import load_star
+    from .catalog import known_by_star, match_known, match_single, known_masks
+    from .vetting import measure
+    star = load_star(root, tic)
+    residuals = detrended(star, search_config(search["config"]))
     known = known_by_star(str(snapshots)).get(int(tic), [])
-    baseline = float(star["time_bjd"][-1] - star["time_bjd"][0])
-    peaks = result.candidates(ranking="signal")
+    peaks = search["peaks"]
     parents = [related_peak(peak, peaks[:i]) for i, peak in enumerate(peaks)]
     events = []
     for i, peak in enumerate(peaks):
-        others = [(p["period_days"], p["epoch_bjd"], p["duration_hours"]) for j, p in enumerate(peaks)
-                  if j != i and parents[j] != i and parents[i] != j]
-        match = match_known(peak, known)
-        masks = others + known_masks(known, peak)
-        d = peak["duration_hours"] / 24
-        corrected = min(residuals, key=lambda r: abs(math.log((r[0] * r[1]) ** .5 / d)))[2]
-        event = {"tic": int(tic), "search": "periodic", "peak": peak, "known": match, "baseline_days": baseline}
+        event = {"id": i, "tic": int(tic), "search": "periodic", "peak": peak, "known": match_known(peak, known)}
         if parents[i] is not None:
             event["related"] = {"period_days": peaks[parents[i]]["period_days"], "snr": peaks[parents[i]]["snr"]}
             event["tier"] = "duplicate: harmonic or secondary of a stronger signal"
             events.append(event)
             continue
+        others = [(p["period_days"], p["epoch_bjd"], p["duration_hours"]) for j, p in enumerate(peaks)
+                  if j != i and parents[j] != i]
+        event["masks"] = others + known_masks(known, peak)
         try:
-            prep = fold(star["time_bjd"], corrected, star["sector"], peak["period_days"], peak["epoch_bjd"],
-                        peak["duration_hours"], masks)
+            prep = folded(star, residuals, peak, event["masks"])
             event["metrics"] = measure(prep, star["star"], star["centr1"], star["centr2"], star["crowdsap"], star["meta"])
         except ValueError as error:
             event["error"] = str(error)
-            events.append(event)
-            continue
-        if pixel and event["metrics"]["verdict"] == "pass":
+        events.append(event)
+    for k, single in enumerate(search["single_events"]):
+        events.append({"id": len(peaks) + k, "tic": int(tic), "search": "single", "peak": single, "known": match_single(single, known),
+                       "metrics": {"period_days": None, "epoch_bjd": single["epoch_bjd"], "duration_hours": single["duration_hours"],
+                                   "depth_ppm": single["depth_ppm"], "depth_err_ppm": None, "snr": single["snr"], "transits": 1,
+                                   "flags": {}, "verdict": "pass", "star": star["star"]}})
+    return {"tic": int(tic), "baseline_days": search["baseline_days"], "events": events}
+
+
+def passing(event, pixel=None):
+    """A periodic, non-duplicate signal that passed vetting (and the pixel test when given)."""
+    if event.get("search") != "periodic" or "related" in event or "metrics" not in event:
+        return False
+    if event["metrics"]["verdict"] != "pass":
+        return False
+    if pixel is not None and str(event["id"]) in pixel.get("events", {}):
+        from .pixels import apply_pixel_test
+        metrics = copy.deepcopy(event["metrics"])
+        apply_pixel_test(metrics, pixel["events"][str(event["id"])])
+        return metrics["verdict"] == "pass"
+    return True
+
+
+def pixel_star(tic, root, vetting):
+    from .star import load_star
+    from .pixels import pixel_test
+    star = load_star(root, tic)
+    out = {}
+    for event in vetting["events"]:
+        if passing(event):
+            p = event["peak"]
             try:
-                apply_pixel_test(event["metrics"], pixel_test(star, peak["period_days"], peak["epoch_bjd"], peak["duration_hours"], root))
+                out[str(event["id"])] = pixel_test(star, p["period_days"], p["epoch_bjd"], p["duration_hours"], root)
             except Exception as error:
-                event["metrics"]["pixel_test"] = {"error": str(error)[-300:]}
-        if fpp and event["metrics"]["verdict"] == "pass" and match is None:
-            event["fpp"] = fpp_job(star, prep, event["metrics"], root)
+                out[str(event["id"])] = {"error": str(error)[-300:]}
+    return {"tic": int(tic), "events": out}
+
+
+def fpp_star(tic, root, search, vetting, pixel):
+    from .star import load_star
+    from .fpp import fpp_job
+    out = {}
+    todo = [e for e in vetting["events"] if e.get("known") is None and passing(e, pixel)]
+    if todo:
+        star = load_star(root, tic)
+        residuals = detrended(star, search_config(search["config"]))
+        for event in todo:
+            prep = folded(star, residuals, event["peak"], [tuple(m) for m in event["masks"]])
+            out[str(event["id"])] = fpp_job(star, prep, event["metrics"], root)
+    return {"tic": int(tic), "events": out}
+
+
+def assemble(tic, root):
+    """Final events of one star from the stage files: pixel result applied, FPP attached, tier set."""
+    from .pixels import apply_pixel_test
+    vetting, pixel, fpp = read(root, "vet", tic), read(root, "pixel", tic) or {}, read(root, "fpp", tic) or {}
+    if vetting is None:
+        return []
+    events = []
+    for event in vetting["events"]:
+        if "metrics" not in event:
+            if "tier" in event:
+                events.append(event)
+            continue
+        key = str(event["id"])
+        if key in pixel.get("events", {}):
+            apply_pixel_test(event["metrics"], pixel["events"][key])
+        if key in fpp.get("events", {}):
+            event["fpp"] = fpp["events"][key]
         event["tier"] = tier(event)
         events.append(event)
-    for single in result.single_events:
-        event = {"tic": int(tic), "search": "single", "peak": single, "known": match_single(single, known),
-                 "baseline_days": baseline, "metrics": {"period_days": None, "epoch_bjd": single["epoch_bjd"],
-                                                        "duration_hours": single["duration_hours"],
-                                                        "depth_ppm": single["depth_ppm"], "depth_err_ppm": None,
-                                                        "snr": single["snr"], "transits": 1, "flags": {},
-                                                        "verdict": "pass", "star": star["star"]}}
-        event["tier"] = "candidate: single event"
-        events.append(event)
-    return {"tic": int(tic), "processed_utc": datetime.now(timezone.utc).isoformat(), "config": result.config.__dict__,
-            "statistics": {k: v for k, v in result.statistics.items() if k in ("observations", "baseline_days", "periods_tested",
-                                                                              "resolved_peaks", "single_events", "seconds_total")},
-            "events": json_safe(events)}
+    return events
 
 
-def rank(label):
-    return next((i for i, o in enumerate(TIER_ORDER) if label.startswith(o)), len(TIER_ORDER))
-
-
-def write_public(reports, public, author):
-    """Dated candidate table and CTOI rows for the stars processed in this run.
-
-    Each star has one report, written once, so a candidate appears in the public
-    files of the day it was processed and never again."""
+def publish(tics, root, public, author):
+    """Candidate table (every vetted signal) and ExoFOP CTOI rows (new candidates), dated by the run."""
     from .ctoi import ctoi_row, COLUMNS
-    public.mkdir(parents=True, exist_ok=True)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows, ctoi_rows = [], []
-    for report in reports:
-        for e in report["events"]:
-            if "metrics" not in e or "tier" not in e:
+    for tic in tics:
+        for e in assemble(tic, root):
+            if "metrics" not in e:
                 continue
             m, peak, known = e["metrics"], e["peak"], e.get("known") or {}
             rows.append({"tic": e["tic"], "search": e["search"], "tier": e["tier"], "known": known.get("name"),
@@ -183,34 +266,64 @@ def write_public(reports, public, author):
             if e.get("known") is None and e["tier"].startswith(("strong", "candidate")):
                 ctoi_rows.append(ctoi_row(e, author))
     rows.sort(key=lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0)))
-
-    def append(path, fieldnames, new_rows):
-        existing = []
-        if path.exists():
-            with path.open() as f:
-                existing = list(csv.DictReader(f))
-        with path.open("w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
-            w.writerows(existing + new_rows)
-    if rows:
-        append(public / f"candidates_{today}.csv", list(rows[0]), rows)
-    if ctoi_rows:
-        append(public / f"ctoi_{today}.csv", COLUMNS, ctoi_rows)
+    public = Path(public)
+    public.mkdir(parents=True, exist_ok=True)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for name, fieldnames, content in (("candidates", list(rows[0]) if rows else None, rows), ("ctoi", COLUMNS, ctoi_rows)):
+        if content:
+            with (public / f"{name}_{today}.csv").open("w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=fieldnames)
+                w.writeheader()
+                w.writerows(content)
     return len(rows), len(ctoi_rows)
 
 
+def run_stage(stage, tics, args):
+    root = args.root
+    pending = []
+    for tic in tics:
+        if read(root, stage, tic) is not None:
+            continue
+        inputs = {"search": (), "vet": ("search",), "pixel": ("vet",), "fpp": ("search", "vet", "pixel")}[stage]
+        if all(read(root, s, tic) is not None for s in inputs):
+            pending.append(tic)
+    pending = pending[:args.limit]
+    print(f"{stage}: {len(tics)} stars, {len(pending)} pending", flush=True)
+    config = search_config(pmax=args.pmax)
+    for n, tic in enumerate(pending, 1):
+        started = time.perf_counter()
+        try:
+            if stage == "search":
+                out = search_star(tic, root, config)
+            elif stage == "vet":
+                out = vet_star(tic, root, args.snapshots, read(root, "search", tic))
+            elif stage == "pixel":
+                out = pixel_star(tic, root, read(root, "vet", tic))
+            else:
+                out = fpp_star(tic, root, read(root, "search", tic), read(root, "vet", tic), read(root, "pixel", tic))
+        except Exception as error:
+            out = {"tic": tic, "error": str(error)[-500:]}
+        out["seconds"] = time.perf_counter() - started
+        write(root, stage, tic, out)
+        if stage == "search":
+            summary = f"{len(out.get('peaks', []))} peaks, {len(out.get('single_events', []))} single events"
+        elif stage == "vet":
+            summary = "; ".join(f"P={e['peak'].get('period_days')} {e.get('known') and e['known'].get('name') or 'not catalogued'} "
+                                f"{e.get('tier') or e.get('metrics', {}).get('verdict') or e.get('error')}" for e in out.get("events", []))
+        else:
+            summary = f"{len(out.get('events', {}))} signals"
+        print(f"[{n}/{len(pending)}] TIC {tic} {out['seconds']:.0f}s " + (out.get("error") or summary or "no events"), flush=True)
+
+
 def main():
-    from fbls import SearchConfig
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("stage", choices=STAGES)
     parser.add_argument("--targets", type=Path, help="CSV with a tic_id column")
     parser.add_argument("--tic", type=int, nargs="*", help="Explicit TIC identifiers")
     parser.add_argument("--root", type=Path, default=ROOT / "data")
     parser.add_argument("--snapshots", type=Path, default=ROOT / "data" / "snapshots")
     parser.add_argument("--public", type=Path, default=ROOT / "public")
     parser.add_argument("--pmax", type=float, default=100.)
-    parser.add_argument("--no-fpp", action="store_true", help="Skip TRICERATOPS for new candidates")
-    parser.add_argument("--no-pixel", action="store_true", help="Skip the TPF difference-image test")
     parser.add_argument("--author", default=AUTHOR)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
@@ -220,26 +333,11 @@ def main():
             tics += [int(r["tic_id"]) for r in csv.DictReader(f)]
     if not tics:
         parser.error("give --targets or --tic")
-    reports_dir = args.root / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    config = SearchConfig(period_max=args.pmax, durations_hours=tuple(round(.5 * 1.25 ** i, 6) for i in range(19)))
-    done = []
-    pending = [t for t in tics if not (reports_dir / f"{t}.json").exists()][:args.limit]
-    print(f"{len(tics)} stars, {len(pending)} pending", flush=True)
-    for n, tic in enumerate(pending, 1):
-        started = time.perf_counter()
-        try:
-            report = star_events(tic, args.root, config, args.snapshots, not args.no_fpp, not args.no_pixel)
-        except Exception as error:
-            report = {"tic": tic, "processed_utc": datetime.now(timezone.utc).isoformat(), "error": str(error)[-500:], "events": []}
-        report["seconds"] = time.perf_counter() - started
-        (reports_dir / f"{tic}.json").write_text(json.dumps(report, indent=1) + "\n")
-        done.append(report)
-        summary = [f"{e['search']} P={e['peak'].get('period_days')} {e.get('known', {}) and e['known'].get('name') or 'not catalogued'} -> {e['tier']}"
-                   for e in report["events"] if "tier" in e]
-        print(f"[{n}/{len(pending)}] TIC {tic} {report['seconds']:.0f}s " + ("; ".join(summary) or report.get("error", "no events")), flush=True)
-    rows, new = write_public(done, args.public, args.author)
-    print(f"public: {rows} vetted signals, {new} new CTOI rows")
+    if args.stage == "publish":
+        rows, new = publish(tics, args.root, args.public, args.author)
+        print(f"public: {rows} vetted signals, {new} new CTOI rows")
+    else:
+        run_stage(args.stage, tics, args)
 
 
 if __name__ == "__main__":

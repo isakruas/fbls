@@ -109,5 +109,18 @@ class TierTest(unittest.TestCase):
         self.assertEqual(tier(self.event({"radius": 1., "teff": 5800.})), "candidate: no FPP")
 
 
+
+class FunnelTest(unittest.TestCase):
+    def test_pixel_offset_removes_a_signal_from_the_next_stage(self):
+        from fbls.survey.run import passing
+        event = {"id": 0, "search": "periodic", "metrics": {"verdict": "pass", "flags": {}}}
+        self.assertTrue(passing(event))
+        self.assertTrue(passing(event, {"events": {"0": {"sigma": 1., "offset_pixels": .1}}}))
+        self.assertFalse(passing(event, {"events": {"0": {"sigma": 9., "offset_pixels": 2.}}}))
+        self.assertEqual(event["metrics"]["flags"], {})
+        self.assertFalse(passing(dict(event, related={"period_days": 1.})))
+        self.assertFalse(passing(dict(event, search="single")))
+
+
 if __name__ == "__main__":
     unittest.main()
