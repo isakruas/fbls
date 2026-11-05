@@ -3,7 +3,14 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-data/
+data/*
+!data/evaluation/
+!data/reports/
+!data/snapshots/
+data/snapshots/*
+!data/snapshots/catalogs/
+data/snapshots/catalogs/*
+!data/snapshots/catalogs/snapshot.json
 targets/tic_cache.jsonl
 .venv/
 targets/*.log

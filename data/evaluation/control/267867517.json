@@ -1,0 +1,26 @@
+{
+ "tic": 267867517,
+ "seconds": 7.937420267000562,
+ "baseline_days": 27.162944867741317,
+ "peaks": [],
+ "single_events": [],
+ "recovery": [
+  {
+   "name": "TOI 3608.01",
+   "kind": "false_positive",
+   "period": 2.6816329,
+   "epoch": 2458787.3585,
+   "duration_hours": 2.695,
+   "period_err": 0.000715,
+   "epoch_err": 0.011409,
+   "tic": 267867517,
+   "sectors": 1,
+   "baseline_days": 27.162944867741317,
+   "in_range": true,
+   "sampled_events": 10,
+   "eligible": true,
+   "signal_rank": null,
+   "model_rank": null
+  }
+ ]
+}

@@ -1,0 +1,80 @@
+{
+ "tic": 27454084,
+ "seconds": 419.9394782809977,
+ "baseline_days": 759.11674616253,
+ "peaks": [
+  {
+   "period_days": 69.71758814000346,
+   "epoch_bjd": 2459840.462490613,
+   "duration_hours": 6.084444055854847,
+   "snr": 8.011778154049082,
+   "snr_folded": 8.011778154049082,
+   "snr_without_strongest_event": 3.769536934297558,
+   "depth": 0.0034693161385953458,
+   "depth_ppm": 3469.316138595346,
+   "events": 2,
+   "family": 3,
+   "pass": 1,
+   "planet_log_odds": -0.1502088406343134,
+   "log_bf_planet_noise": 22.733953475737092,
+   "log_bf_binary_noise": 22.88416230507967,
+   "binary_secondary_ratio": 0.1,
+   "binary_secondary_phase": 0.5,
+   "binary_odd_even_ratio": 1.0,
+   "binary_period_days": 69.71758814000346,
+   "ingress_fraction": 0.2,
+   "evidence_epoch_bjd": 2459840.458749455,
+   "evidence_duration_hours": 5.809799011666955,
+   "model_preferred": false,
+   "binary_diagnostics_complete": true
+  }
+ ],
+ "single_events": [],
+ "recovery": [
+  {
+   "name": "TOI 7909.01",
+   "kind": "planet",
+   "period": 348.5786062,
+   "epoch": 2459840.455462,
+   "duration_hours": 3.7493976,
+   "period_err": 0.0033832,
+   "epoch_err": 0.004914,
+   "tic": 27454084,
+   "sectors": 6,
+   "baseline_days": 759.11674616253,
+   "in_range": false,
+   "sampled_events": 2,
+   "eligible": false,
+   "signal_rank": 1,
+   "model_rank": 1,
+   "hit": {
+    "period_days": 69.71758814000346,
+    "duration_hours": 6.084444055854847,
+    "snr": 8.011778154049082,
+    "depth_ppm": 3469.316138595346,
+    "events": 2,
+    "pass": 1,
+    "planet_log_odds": -0.1502088406343134,
+    "model_preferred": false,
+    "period_match": false
+   }
+  },
+  {
+   "name": "Kepler-419 b",
+   "kind": "planet",
+   "period": 69.7546,
+   "epoch": 2455029.093243,
+   "duration_hours": 3.7177,
+   "period_err": 0.0007,
+   "epoch_err": 0.000276,
+   "tic": 27454084,
+   "sectors": 6,
+   "baseline_days": 759.11674616253,
+   "in_range": true,
+   "sampled_events": 3,
+   "eligible": true,
+   "signal_rank": null,
+   "model_rank": null
+  }
+ ]
+}

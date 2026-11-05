@@ -1,0 +1,26 @@
+{
+ "tic": 224603921,
+ "seconds": 59.54499346400553,
+ "baseline_days": 210.28533929167315,
+ "peaks": [],
+ "single_events": [],
+ "recovery": [
+  {
+   "name": "TOI 7389.01",
+   "kind": "planet",
+   "period": 26.345368,
+   "epoch": 2458709.19456,
+   "duration_hours": 6.144,
+   "period_err": 9.4e-05,
+   "epoch_err": 0.00367,
+   "tic": 224603921,
+   "sectors": 8,
+   "baseline_days": 210.28533929167315,
+   "in_range": true,
+   "sampled_events": 8,
+   "eligible": true,
+   "signal_rank": null,
+   "model_rank": null
+  }
+ ]
+}

@@ -1,0 +1,63 @@
+{
+ "tic": 123106490,
+ "seconds": 32.25046377700346,
+ "baseline_days": 50.24257549038157,
+ "peaks": [
+  {
+   "period_days": 3.300968330517351,
+   "epoch_bjd": 2459966.8942568516,
+   "duration_hours": 2.372570987559346,
+   "snr": 23.589988841603432,
+   "snr_folded": 23.589988841603432,
+   "snr_without_strongest_event": 20.55857249928725,
+   "depth": 0.0019071145760797192,
+   "depth_ppm": 1907.1145760797192,
+   "events": 14,
+   "family": 0,
+   "pass": 1,
+   "planet_log_odds": -1.1401430763779672,
+   "log_bf_planet_noise": 269.6536247524504,
+   "log_bf_binary_noise": 270.7937678288284,
+   "binary_secondary_ratio": 0.1,
+   "binary_secondary_phase": 0.5,
+   "binary_odd_even_ratio": 1.0,
+   "binary_period_days": 3.300968330517351,
+   "ingress_fraction": 0.2,
+   "evidence_epoch_bjd": 2459966.8948650784,
+   "evidence_duration_hours": 2.36673201055961,
+   "model_preferred": false,
+   "binary_diagnostics_complete": true
+  }
+ ],
+ "single_events": [],
+ "recovery": [
+  {
+   "name": "TOI 2874.01",
+   "kind": "false_positive",
+   "period": 3.3004862,
+   "epoch": 2459963.591728,
+   "duration_hours": 2.959105,
+   "period_err": 1.65e-05,
+   "epoch_err": 0.002915,
+   "tic": 123106490,
+   "sectors": 2,
+   "baseline_days": 50.24257549038157,
+   "in_range": true,
+   "sampled_events": 15,
+   "eligible": true,
+   "signal_rank": 1,
+   "model_rank": 1,
+   "hit": {
+    "period_days": 3.300968330517351,
+    "duration_hours": 2.372570987559346,
+    "snr": 23.589988841603432,
+    "depth_ppm": 1907.1145760797192,
+    "events": 14,
+    "pass": 1,
+    "planet_log_odds": -1.1401430763779672,
+    "model_preferred": false,
+    "period_match": true
+   }
+  }
+ ]
+}

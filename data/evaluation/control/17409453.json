@@ -1,0 +1,80 @@
+{
+ "tic": 17409453,
+ "seconds": 1211.723266244997,
+ "baseline_days": 785.2561627905816,
+ "peaks": [
+  {
+   "period_days": 9.72646024898252,
+   "epoch_bjd": 2459474.8058903096,
+   "duration_hours": 5.471133890052668,
+   "snr": 9.606061815952767,
+   "snr_folded": 9.606061815952767,
+   "snr_without_strongest_event": 7.218635848967273,
+   "depth": 0.0026005052613317517,
+   "depth_ppm": 2600.5052613317516,
+   "events": 9,
+   "family": 3,
+   "pass": 1,
+   "planet_log_odds": 0.5391267616324562,
+   "log_bf_planet_noise": 30.32651744198306,
+   "log_bf_binary_noise": 29.78739068033926,
+   "binary_secondary_ratio": 0.0,
+   "binary_secondary_phase": 0.5,
+   "binary_odd_even_ratio": 1.3333333333333333,
+   "binary_period_days": 19.45292049796504,
+   "ingress_fraction": 0.2,
+   "evidence_epoch_bjd": 2459474.8364708344,
+   "evidence_duration_hours": 5.693537706721474,
+   "model_preferred": true,
+   "binary_diagnostics_complete": true
+  }
+ ],
+ "single_events": [
+  {
+   "epoch_bjd": 2459509.096191043,
+   "duration_hours": 4.656491047739238,
+   "snr": 7.695835508856883,
+   "depth": 0.005515280200506948,
+   "depth_ppm": 5515.280200506948,
+   "points": 28
+  },
+  {
+   "epoch_bjd": 2459509.4330236763,
+   "duration_hours": 2.374991523100479,
+   "snr": 7.502712672781246,
+   "depth": 0.006163294843124694,
+   "depth_ppm": 6163.294843124694,
+   "points": 14
+  }
+ ],
+ "recovery": [
+  {
+   "name": "TOI 5080.01",
+   "kind": "planet",
+   "period": 9.72665,
+   "epoch": 2460243.190501,
+   "duration_hours": 4.584,
+   "period_err": 2.46e-05,
+   "epoch_err": 0.007909,
+   "tic": 17409453,
+   "sectors": 4,
+   "baseline_days": 785.2561627905816,
+   "in_range": true,
+   "sampled_events": 10,
+   "eligible": true,
+   "signal_rank": 1,
+   "model_rank": 1,
+   "hit": {
+    "period_days": 9.72646024898252,
+    "duration_hours": 5.471133890052668,
+    "snr": 9.606061815952767,
+    "depth_ppm": 2600.5052613317516,
+    "events": 9,
+    "pass": 1,
+    "planet_log_odds": 0.5391267616324562,
+    "model_preferred": true,
+    "period_match": true
+   }
+  }
+ ]
+}

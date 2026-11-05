@@ -1,0 +1,35 @@
+{
+ "tic": 428679607,
+ "seconds": 851.5830785360013,
+ "baseline_days": 1652.5639513400383,
+ "peaks": [],
+ "single_events": [
+  {
+   "epoch_bjd": 2459942.0322511094,
+   "duration_hours": 2.9999977578285804,
+   "snr": 63.277101092251364,
+   "depth": 0.009451030441815758,
+   "depth_ppm": 9451.03044181576,
+   "points": 18
+  }
+ ],
+ "recovery": [
+  {
+   "name": "TOI 1669.01",
+   "kind": "planet",
+   "period": 2.6800536,
+   "epoch": 2460660.823683,
+   "duration_hours": 1.758,
+   "period_err": 4.8e-06,
+   "epoch_err": 0.001842,
+   "tic": 428679607,
+   "sectors": 8,
+   "baseline_days": 1652.5639513400383,
+   "in_range": true,
+   "sampled_events": 62,
+   "eligible": true,
+   "signal_rank": null,
+   "model_rank": null
+  }
+ ]
+}

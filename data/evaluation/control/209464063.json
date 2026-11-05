@@ -1,0 +1,91 @@
+{
+ "tic": 209464063,
+ "seconds": 1483.8511636710027,
+ "baseline_days": 2879.8679044586606,
+ "peaks": [
+  {
+   "period_days": 47.72840056218433,
+   "epoch_bjd": 2458424.8150228844,
+   "duration_hours": 11.186343881761953,
+   "snr": 32.86883823363154,
+   "snr_folded": 32.86883823363154,
+   "snr_without_strongest_event": 21.244090145322467,
+   "depth": 0.0022682624128901084,
+   "depth_ppm": 2268.2624128901084,
+   "events": 5,
+   "family": 6,
+   "pass": 1,
+   "planet_log_odds": -3.87476708944979,
+   "log_bf_planet_noise": 499.71873371286,
+   "log_bf_binary_noise": 503.5935008023098,
+   "binary_secondary_ratio": 0.0,
+   "binary_secondary_phase": 0.5,
+   "binary_odd_even_ratio": 1.3333333333333333,
+   "binary_period_days": 95.45680112436867,
+   "ingress_fraction": 0.45,
+   "evidence_epoch_bjd": 2458424.8560948567,
+   "evidence_duration_hours": 11.341402113786375,
+   "model_preferred": false,
+   "binary_diagnostics_complete": true
+  }
+ ],
+ "single_events": [],
+ "recovery": [
+  {
+   "name": "TOI 5678.01",
+   "kind": "planet",
+   "period": 119.3355264,
+   "epoch": 2459140.665271,
+   "duration_hours": 6.863,
+   "period_err": 0.0067392,
+   "epoch_err": 0.003916,
+   "tic": 209464063,
+   "sectors": 6,
+   "baseline_days": 2879.8679044586606,
+   "in_range": false,
+   "sampled_events": 3,
+   "eligible": false,
+   "signal_rank": 1,
+   "model_rank": 1,
+   "hit": {
+    "period_days": 47.72840056218433,
+    "duration_hours": 11.186343881761953,
+    "snr": 32.86883823363154,
+    "depth_ppm": 2268.2624128901084,
+    "events": 5,
+    "pass": 1,
+    "planet_log_odds": -3.87476708944979,
+    "model_preferred": false,
+    "period_match": false
+   }
+  },
+  {
+   "name": "TOI-5678 b",
+   "kind": "planet",
+   "period": 47.73022,
+   "epoch": 2458424.7059,
+   "duration_hours": 6.96,
+   "period_err": 0.00014,
+   "epoch_err": 0.0035,
+   "tic": 209464063,
+   "sectors": 6,
+   "baseline_days": 2879.8679044586606,
+   "in_range": true,
+   "sampled_events": 5,
+   "eligible": true,
+   "signal_rank": 1,
+   "model_rank": 1,
+   "hit": {
+    "period_days": 47.72840056218433,
+    "duration_hours": 11.186343881761953,
+    "snr": 32.86883823363154,
+    "depth_ppm": 2268.2624128901084,
+    "events": 5,
+    "pass": 1,
+    "planet_log_odds": -3.87476708944979,
+    "model_preferred": false,
+    "period_match": true
+   }
+  }
+ ]
+}

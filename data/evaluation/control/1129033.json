@@ -1,0 +1,80 @@
+{
+ "tic": 1129033,
+ "seconds": 984.1397372150022,
+ "baseline_days": 759.0409151786007,
+ "peaks": [
+  {
+   "period_days": 1.3600277862575016,
+   "epoch_bjd": 2458412.3446939364,
+   "duration_hours": 1.5300312595396894,
+   "snr": 539.6614201437276,
+   "snr_folded": 539.6614201437276,
+   "snr_without_strongest_event": 529.2266522283455,
+   "depth": 0.018275430250768214,
+   "depth_ppm": 18275.430250768215,
+   "events": 29,
+   "family": 0,
+   "pass": 1,
+   "planet_log_odds": 1.3607095539191505,
+   "log_bf_planet_noise": 127235.13239938105,
+   "log_bf_binary_noise": 127233.77168982713,
+   "binary_secondary_ratio": 0.01,
+   "binary_secondary_phase": 0.5,
+   "binary_odd_even_ratio": 1.0,
+   "binary_period_days": 1.3600277862575016,
+   "ingress_fraction": 0.2,
+   "evidence_epoch_bjd": 2458412.3459818414,
+   "evidence_duration_hours": 2.349138903535685,
+   "model_preferred": true,
+   "binary_diagnostics_complete": true
+  }
+ ],
+ "single_events": [
+  {
+   "epoch_bjd": 2459151.3561526793,
+   "duration_hours": 3.7251042673613455,
+   "snr": 30.497705546538263,
+   "depth": 0.004304485965074978,
+   "depth_ppm": 4304.485965074978,
+   "points": 23
+  },
+  {
+   "epoch_bjd": 2459151.081763423,
+   "duration_hours": 2.9999823088424384,
+   "snr": 9.865503580659688,
+   "depth": 0.0017059326855327617,
+   "depth_ppm": 1705.9326855327618,
+   "points": 18
+  }
+ ],
+ "recovery": [
+  {
+   "name": "TOI 398.01",
+   "kind": "planet",
+   "period": 1.360029395,
+   "epoch": 2459957.33786,
+   "duration_hours": 2.1652751,
+   "period_err": 5.7e-08,
+   "epoch_err": 4.3e-05,
+   "tic": 1129033,
+   "sectors": 2,
+   "baseline_days": 759.0409151786007,
+   "in_range": true,
+   "sampled_events": 33,
+   "eligible": true,
+   "signal_rank": 1,
+   "model_rank": 1,
+   "hit": {
+    "period_days": 1.3600277862575016,
+    "duration_hours": 1.5300312595396894,
+    "snr": 539.6614201437276,
+    "depth_ppm": 18275.430250768215,
+    "events": 29,
+    "pass": 1,
+    "planet_log_odds": 1.3607095539191505,
+    "model_preferred": true,
+    "period_match": true
+   }
+  }
+ ]
+}

@@ -1,0 +1,371 @@
+{
+  "stars": 219,
+  "seconds_total": 183450.90230776297,
+  "generated_utc": "2026-11-05T16:44:21.492400+00:00",
+  "counts": {
+    "planet": {
+      "eligible": 233,
+      "signal_top1": 161,
+      "signal_top5": 195,
+      "signal_top20": 195,
+      "model_top1": 157,
+      "model_top5": 194,
+      "model_top20": 195,
+      "model_preferred": 170,
+      "period_ambiguous": 11,
+      "by_period": {
+        "0.5-3": {
+          "eligible": 57,
+          "signal_top20": 50
+        },
+        "3-10": {
+          "eligible": 78,
+          "signal_top20": 72
+        },
+        "10-30": {
+          "eligible": 68,
+          "signal_top20": 53
+        },
+        "30-100": {
+          "eligible": 30,
+          "signal_top20": 20
+        }
+      }
+    },
+    "false_positive": {
+      "eligible": 40,
+      "signal_top1": 32,
+      "signal_top5": 33,
+      "signal_top20": 34,
+      "model_top1": 26,
+      "model_top5": 33,
+      "model_top20": 34,
+      "model_preferred": 20,
+      "period_ambiguous": 0,
+      "by_period": {
+        "0.5-3": {
+          "eligible": 24,
+          "signal_top20": 21
+        },
+        "3-10": {
+          "eligible": 14,
+          "signal_top20": 12
+        },
+        "10-30": {
+          "eligible": 1,
+          "signal_top20": 1
+        },
+        "30-100": {
+          "eligible": 1,
+          "signal_top20": 0
+        }
+      }
+    }
+  },
+  "missed_planets": [
+    {
+      "tic": 399954349,
+      "name": "Kepler-411 d",
+      "period": 58.02035,
+      "duration_hours": 5.669,
+      "sectors": 8,
+      "sampled_events": 4
+    },
+    {
+      "tic": 27769688,
+      "name": "Kepler-396 b",
+      "period": 42.994,
+      "duration_hours": 4.6011,
+      "sectors": 8,
+      "sampled_events": 4
+    },
+    {
+      "tic": 428679607,
+      "name": "TOI 1669.01",
+      "period": 2.6800536,
+      "duration_hours": 1.758,
+      "sectors": 8,
+      "sampled_events": 62
+    },
+    {
+      "tic": 262715204,
+      "name": "TOI 4538.03",
+      "period": 10.4534748,
+      "duration_hours": 2.375617,
+      "sectors": 3,
+      "sampled_events": 6
+    },
+    {
+      "tic": 262715204,
+      "name": "K2-285 e",
+      "period": 14.76289,
+      "duration_hours": 2.3,
+      "sectors": 3,
+      "sampled_events": 4
+    },
+    {
+      "tic": 124029677,
+      "name": "TOI 5153.01",
+      "period": 20.9108406,
+      "duration_hours": 4.478,
+      "sectors": 3,
+      "sampled_events": 6
+    },
+    {
+      "tic": 18310799,
+      "name": "K2-136 b",
+      "period": 7.97525,
+      "duration_hours": 2.67,
+      "sectors": 3,
+      "sampled_events": 10
+    },
+    {
+      "tic": 18310799,
+      "name": "K2-136 d",
+      "period": 25.575,
+      "duration_hours": 3.04,
+      "sectors": 3,
+      "sampled_events": 3
+    },
+    {
+      "tic": 273234825,
+      "name": "Kepler-289 b",
+      "period": 34.5383,
+      "duration_hours": 3.178,
+      "sectors": 6,
+      "sampled_events": 4
+    },
+    {
+      "tic": 273234825,
+      "name": "Kepler-289 d",
+      "period": 66.0282,
+      "duration_hours": 3.557,
+      "sectors": 6,
+      "sampled_events": 2
+    },
+    {
+      "tic": 459970307,
+      "name": "TOI 1154.01",
+      "period": 21.74549,
+      "duration_hours": 4.196,
+      "sectors": 8,
+      "sampled_events": 8
+    },
+    {
+      "tic": 164652245,
+      "name": "TOI 5980.01",
+      "period": 79.5839995,
+      "duration_hours": 4.3996752,
+      "sectors": 8,
+      "sampled_events": 2
+    },
+    {
+      "tic": 164652245,
+      "name": "Kepler-37 b",
+      "period": 13.36702,
+      "duration_hours": 3.733,
+      "sectors": 8,
+      "sampled_events": 16
+    },
+    {
+      "tic": 164652245,
+      "name": "Kepler-37 c",
+      "period": 21.301848,
+      "duration_hours": 3.8131,
+      "sectors": 8,
+      "sampled_events": 9
+    },
+    {
+      "tic": 164652245,
+      "name": "Kepler-37 e",
+      "period": 51.196,
+      "duration_hours": 8.99,
+      "sectors": 8,
+      "sampled_events": 5
+    },
+    {
+      "tic": 120896927,
+      "name": "TOI 402.02",
+      "period": 17.180546,
+      "duration_hours": 2.232,
+      "sectors": 7,
+      "sampled_events": 11
+    },
+    {
+      "tic": 418761354,
+      "name": "TOI 4533.01",
+      "period": 2.1747824,
+      "duration_hours": 1.654,
+      "sectors": 3,
+      "sampled_events": 25
+    },
+    {
+      "tic": 306955329,
+      "name": "TOI-1472 c",
+      "period": 15.5381747,
+      "duration_hours": 2.83,
+      "sectors": 5,
+      "sampled_events": 7
+    },
+    {
+      "tic": 224603921,
+      "name": "TOI 7389.01",
+      "period": 26.345368,
+      "duration_hours": 6.144,
+      "sectors": 8,
+      "sampled_events": 8
+    },
+    {
+      "tic": 27454084,
+      "name": "Kepler-419 b",
+      "period": 69.7546,
+      "duration_hours": 3.7177,
+      "sectors": 6,
+      "sampled_events": 3
+    },
+    {
+      "tic": 4610830,
+      "name": "K2-138 c",
+      "period": 3.56004,
+      "duration_hours": 2.38,
+      "sectors": 2,
+      "sampled_events": 8
+    },
+    {
+      "tic": 4610830,
+      "name": "K2-138 d",
+      "period": 5.40479,
+      "duration_hours": 2.7,
+      "sectors": 2,
+      "sampled_events": 6
+    },
+    {
+      "tic": 4610830,
+      "name": "K2-138 b",
+      "period": 2.35309,
+      "duration_hours": 2.01,
+      "sectors": 2,
+      "sampled_events": 13
+    },
+    {
+      "tic": 4610830,
+      "name": "K2-138 f",
+      "period": 12.75758,
+      "duration_hours": 3.2,
+      "sectors": 2,
+      "sampled_events": 3
+    },
+    {
+      "tic": 299161524,
+      "name": "TOI 7860.01",
+      "period": 12.611906672,
+      "duration_hours": 5.1636,
+      "sectors": 8,
+      "sampled_events": 16
+    },
+    {
+      "tic": 274198407,
+      "name": "Kepler-318 c",
+      "period": 11.815007,
+      "duration_hours": 2.556,
+      "sectors": 7,
+      "sampled_events": 16
+    },
+    {
+      "tic": 405010127,
+      "name": "TOI 7066.01",
+      "period": 13.2406,
+      "duration_hours": 2.98,
+      "sectors": 2,
+      "sampled_events": 2
+    },
+    {
+      "tic": 27846348,
+      "name": "Kepler-51 c",
+      "period": 85.312,
+      "duration_hours": 2.702,
+      "sectors": 8,
+      "sampled_events": 2
+    },
+    {
+      "tic": 27846348,
+      "name": "Kepler-51 b",
+      "period": 45.154,
+      "duration_hours": 5.797,
+      "sectors": 8,
+      "sampled_events": 3
+    },
+    {
+      "tic": 271052158,
+      "name": "Kepler-314 b",
+      "period": 2.461069,
+      "duration_hours": 2.293,
+      "sectors": 8,
+      "sampled_events": 83
+    },
+    {
+      "tic": 364186197,
+      "name": "TOI 1408.02",
+      "period": 2.2222094,
+      "duration_hours": 2.461,
+      "sectors": 8,
+      "sampled_events": 74
+    },
+    {
+      "tic": 364186197,
+      "name": "TOI-1408 c",
+      "period": 2.1664,
+      "duration_hours": 2.67,
+      "sectors": 8,
+      "sampled_events": 76
+    },
+    {
+      "tic": 121731834,
+      "name": "Kepler-65 d",
+      "period": 8.13123,
+      "duration_hours": 4.1,
+      "sectors": 8,
+      "sampled_events": 26
+    },
+    {
+      "tic": 121731834,
+      "name": "Kepler-65 b",
+      "period": 2.15491,
+      "duration_hours": 3.077,
+      "sectors": 8,
+      "sampled_events": 93
+    },
+    {
+      "tic": 142276270,
+      "name": "TOI 1136.04",
+      "period": 18.795547,
+      "duration_hours": 4.3425576,
+      "sectors": 7,
+      "sampled_events": 9
+    },
+    {
+      "tic": 142276270,
+      "name": "TOI-1136 b",
+      "period": 4.1727,
+      "duration_hours": 2.07,
+      "sectors": 7,
+      "sampled_events": 40
+    },
+    {
+      "tic": 142276270,
+      "name": "TOI-1136 g",
+      "period": 39.545,
+      "duration_hours": 5.8,
+      "sectors": 7,
+      "sampled_events": 4
+    },
+    {
+      "tic": 122375047,
+      "name": "TOI 6088.01",
+      "period": 9.2866733,
+      "duration_hours": 3.2593808,
+      "sectors": 6,
+      "sampled_events": 16
+    }
+  ]
+}
