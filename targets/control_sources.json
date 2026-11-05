@@ -8,7 +8,8 @@
   "rule": "CP/KP TOIs and published transiting planets; cached span >= 2 x period of every planet in 0.5-100 d; stratified by the longest period; seeded shuffle",
   "seed": 20261105,
   "per_bin": 50,
-  "selected": 179,
+  "selected": 219,
+  "fp_hosts": 40,
   "available": {
     "0.5-3": 259,
     "3-10": 586,

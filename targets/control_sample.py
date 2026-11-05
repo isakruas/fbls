@@ -72,6 +72,7 @@ def main():
     parser.add_argument("--source", type=Path, default=ROOT.parents[1] / "tess" / "data")
     parser.add_argument("--exclude", type=Path, nargs="*", default=[], help="JSON lists of TIC IDs to leave out")
     parser.add_argument("--per-bin", type=int, default=50)
+    parser.add_argument("--fp-hosts", type=int, default=40, help="Stars whose only catalogued signals are TOI false positives")
     parser.add_argument("--seed", type=int, default=20261105)
     parser.add_argument("--root", type=Path, default=ROOT / "data")
     parser.add_argument("--copy", action="store_true", help="Copy NPZ/JSON and FITS files into --root")
@@ -123,8 +124,32 @@ def main():
                                        "span_days_estimate": round(span, 1), "period_bin": f"{lo:g}-{hi:g}",
                                        "planets": "; ".join(f"{n} P={p:.4f} d" for n, p, _ in sorted(in_range, key=lambda x: x[1])),
                                        "n_planets_in_range": len(in_range), "files": files})
+    fp_only = []
+    fp_hosts = defaultdict(list)
+    for r in json.loads((source / "catalogs/toi.json").read_text()):
+        if finite(r.get("pl_orbper")) and r["pl_orbper"] > 0:
+            fp_hosts[int(r["tid"])].append((r.get("tfopwg_disp"), float(r["pl_orbper"])))
+    for tic, rows in fp_hosts.items():
+        if tic in excluded or tic in hosts or any(d != "FP" for d, _ in rows):
+            continue
+        folder = source / "curves" / str(tic)
+        files = sorted(folder.glob("sector-*.npz"), key=lambda p: int(p.stem.split("-")[1])) if folder.is_dir() else []
+        if not files:
+            continue
+        sectors = [int(p.stem.split("-")[1]) for p in files]
+        span = (max(sectors) - min(sectors) + 1) * SECTOR_DAYS
+        if any(span < 2 * p for _, p in rows):
+            continue
+        fp_only.append({"tic_id": tic, "n_sectors": len(files), "sectors": " ".join(map(str, sectors)),
+                        "span_days_estimate": round(span, 1), "period_bin": "false positive",
+                        "planets": "; ".join(f"FP P={p:.4f} d" for _, p in sorted(rows, key=lambda x: x[1])),
+                        "n_planets_in_range": 0, "files": files})
     rng = random.Random(args.seed)
     selected = []
+    fp_only.sort(key=lambda r: r["tic_id"])
+    rng.shuffle(fp_only)
+    selected.extend(fp_only[:args.fp_hosts])
+    print(f"false-positive-only hosts: available {len(fp_only)}, selected {min(len(fp_only), args.fp_hosts)}")
     for b, pool in pools.items():
         pool.sort(key=lambda r: r["tic_id"])
         rng.shuffle(pool)
@@ -141,7 +166,8 @@ def main():
         "source": str(source), "excluded_lists": [str(p) for p in args.exclude], "excluded_stars": len(excluded),
         "rule": "CP/KP TOIs and published transiting planets; cached span >= 2 x period of every planet in 0.5-100 d; "
                 "stratified by the longest period; seeded shuffle", "seed": args.seed, "per_bin": args.per_bin,
-        "selected": len(selected), "available": {f"{b[0]:g}-{b[1]:g}": len(p) for b, p in pools.items()}}, indent=2) + "\n")
+        "selected": len(selected), "fp_hosts": min(len(fp_only), args.fp_hosts),
+        "available": {f"{b[0]:g}-{b[1]:g}": len(p) for b, p in pools.items()}}, indent=2) + "\n")
     print(f"control sample: {len(selected)} stars, {sum(r['n_sectors'] for r in selected)} sector files")
     if args.copy:
         print(f"copied {copy_files(selected, source, args.root)} files into {args.root}")
