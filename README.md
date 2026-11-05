@@ -1,6 +1,7 @@
 # tess-gpu-search
 
-CUDA transit search for TESS light curves, with the survey layer that
+FBLS, a multi-pass box least squares transit search with duration families
+and a fused GPU kernel, for TESS light curves; with the survey layer that
 vets candidates and writes ExoFOP CTOI rows. Linux, NVIDIA GPU, Python 3.10+.
 
 ## Install
@@ -27,7 +28,10 @@ Output: `candidates` (model-preferred first), `signal_candidates` (by SNR),
 
 ## Method in brief
 
-Each transit duration gets its own detrending window and period grid
+The per-period statistic is the box least squares one: for each period, phase and
+duration a box (or trapezoid) is fitted by weighted least squares and ranked by the
+signal-to-noise of its depth. FBLS differs from a classical BLS in what surrounds
+that statistic. Each transit duration gets its own detrending window and period grid
 (duration families). A fused Triton kernel scans every period, phase and shape
 with the box first and trapezoids only where the box is significant; ranking in
 float32, exact winner in float64. Peaks are accepted by isolated rescoring

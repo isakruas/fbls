@@ -1,5 +1,14 @@
 # Method
 
+FBLS (fused box least squares) is a multi-pass box least squares transit
+search with duration families and a fused GPU kernel. The statistic per
+period, phase and duration is the classical BLS one; the method differs
+from a classical BLS search in the duration families (own detrending window
+and period grid per duration range), the multi-pass masking with isolated
+rescoring of peaks, the veto on single dominant events, the separate
+single-event scan, the planet/binary/noise evidence on the strongest peaks,
+and the fused Triton kernel that makes the scan fast without changing its
+result.
 
 Standalone CUDA eclipse-model search with a Python API and an NPZ/JSON CLI.
 Scientific array operations use float64 on the GPU. Runtime dependencies are
