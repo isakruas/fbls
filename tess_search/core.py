@@ -1099,23 +1099,37 @@ def detrending_windows(durations_days, minimum_days=.4, factor=3., maximum_days=
     return families
 
 
+def segment_edges(time, gap=.5):
+    """Distance of every observation to the nearest edge of its gap-separated segment."""
+    boundaries = [0] + (torch.where(time[1:] - time[:-1] > gap)[0] + 1).cpu().tolist() + [len(time)]
+    distance = torch.empty_like(time)
+    for a, b in zip(boundaries[:-1], boundaries[1:]):
+        distance[a:b] = torch.minimum(time[a:b] - time[a], time[b - 1] - time[a:b])
+    return distance
+
+
 def prepare_families(time_values, flux_values, errors=None, sectors=None, durations_days=(), bin_minutes=10.,
-                     window_min=.4, window_factor=3., window_max=3.5, clip_sigma=4.,
+                     window_min=.4, window_factor=3., window_max=3.5, clip_sigma=4., edge_trim=.5,
                      centroid=None, centroid_err=None):
     """Normalize and bin once, then detrend separately for each duration family.
 
     Each family receives the window from `detrending_windows`; its residual,
-    errors and astrometry are clipped independently. Returns a list of
+    errors and astrometry are clipped independently. Observations closer than
+    `edge_trim` windows to a segment edge are dropped: the one-sided biweight
+    there cannot follow the ramps that follow data gaps. Returns a list of
     (PreparedCurve, family_duration_indices).
     """
+    if edge_trim < 0:
+        raise ValueError("edge_trim must be nonnegative")
     diagonal = fit_segment_noise(time_values, flux_values, errors, sectors, bin_minutes=bin_minutes, degree=0,
                                  centroid=centroid, centroid_err=centroid_err)
     sigma = diagonal.variance.sqrt()
+    edge = segment_edges(diagonal.time)
     output = []
     for window, indices in detrending_windows(durations_days, window_min, window_factor, window_max):
         flat = biweight_flatten(diagonal.time, -diagonal.deficit, window)
         scale = 1.4826 * (flat - flat.median()).abs().median()
-        keep = torch.isfinite(flat) & (flat <= clip_sigma * scale)
+        keep = torch.isfinite(flat) & (flat <= clip_sigma * scale) & (edge >= edge_trim * window)
         astrometry = diagonal.ancillary
         if astrometry is not None:
             astrometry = {key: value.clone() for key, value in astrometry.items()}
@@ -1127,7 +1141,8 @@ def prepare_families(time_values, flux_values, errors=None, sectors=None, durati
             astrometry = {key: value[keep] for key, value in astrometry.items()}
         curve = PreparedCurve(diagonal.time[keep] + diagonal.origin, flat[keep], sigma[keep],
                               {**diagonal.provenance, "detrending": f"biweight window {window} d",
-                               "window_days": window, "positive_clip_sigma": clip_sigma, "clipped": int((~keep).sum()),
+                               "window_days": window, "positive_clip_sigma": clip_sigma, "edge_trim_windows": edge_trim,
+                               "clipped": int((~keep).sum()),
                                "observations": int(keep.sum()), "centroid_available": astrometry is not None}, astrometry)
         output.append((curve, indices))
     return output

@@ -27,6 +27,7 @@ class SearchConfig:
     window_days: float = .4
     window_factor: float = 3.
     window_max_days: float = 3.5
+    edge_trim_windows: float = .5
     clip_sigma: float = 4.
     noise_degree: int = 0
     correlated_noise: bool = True
@@ -80,7 +81,7 @@ class SearchConfig:
         object.__setattr__(self, "durations_hours", durations)
         object.__setattr__(self, "ingress_fractions", ingress)
         for name in ("period_min", "period_max", "threshold", "bin_minutes", "window_days",
-                     "window_factor", "window_max_days", "clip_sigma", "period_oversample", "prescan_fraction", "shape_gate_fraction", "max_fold_mib", "planet_prior", "binary_prior",
+                     "window_factor", "window_max_days", "edge_trim_windows", "clip_sigma", "period_oversample", "prescan_fraction", "shape_gate_fraction", "max_fold_mib", "planet_prior", "binary_prior",
                      "planet_depth_scale", "binary_depth_scale", "diluted_binary_depth_scale",
                      "planet_radius_scale_rj", "target_flux_fraction",
                      "evidence_rtol", "planet_log_odds_min", "eccentricity_max", "stellar_duration_scatter",
@@ -147,7 +148,7 @@ class SearchConfig:
         if not ingress or any(not math.isfinite(x) or not 0 <= x < .5 for x in ingress):
             raise ValueError("Ingress fractions must be in [0, 0.5)")
         if (self.threshold < 0 or self.bin_minutes < 0 or self.window_days <= 0 or self.window_factor <= 0
-                or self.window_max_days < self.window_days or
+                or self.window_max_days < self.window_days or self.edge_trim_windows < 0 or
                 self.clip_sigma <= 0 or self.period_oversample < 1 or self.max_fold_mib <= 0):
             raise ValueError("Invalid threshold, preparation window or resource budget")
         integers = ((self.noise_degree, 0, 4), (self.shape_layers, 1, None),
@@ -303,10 +304,13 @@ def _select_peaks(table, time_all, family, states, threshold, limit, min_events,
     A row is accepted when at least `min_events` transit epochs hold three or
     more observations, fewer than half of its in-transit observations are
     shared with accepted ephemerides, its amplitude statistic without the
-    observations of accepted ephemerides still reaches the threshold, and the
-    statistic without its strongest single event keeps at least half of the
-    threshold (with `min_events` above one). After each acceptance the
-    strongest remaining rows are rescored the same way.
+    observations of accepted ephemerides reaches the threshold scaled by the
+    square root of its unshared fraction (and at least half the threshold),
+    and the statistic without its strongest single event keeps at least half
+    of the threshold (with `min_events` above one). The scaling keeps a planet
+    whose transit coincides with another accepted signal, while aliases and
+    harmonics, whose events are mostly shared, still fall below. After each
+    acceptance the strongest remaining rows are rescored the same way.
     """
     accepted, masks = [], list(taken)
     excluded = excluded.clone()
@@ -316,12 +320,21 @@ def _select_peaks(table, time_all, family, states, threshold, limit, min_events,
     remaining[~torch.isfinite(remaining) | (remaining < threshold)] = -torch.inf
     fresh = torch.full((len(table),), not bool(excluded.any()), device="cuda", dtype=torch.bool)
 
+    def required(rows):
+        """Threshold scaled by sqrt(unshared in-transit fraction), floored at half the threshold."""
+        values = table[rows]
+        phase = (time_all[None, :] - values[:, 1:2] + values[:, 0:1] / 2).remainder(values[:, 0:1]) - values[:, 0:1] / 2
+        inside = phase.abs() <= values[:, 2:3] / 2
+        total = inside.sum(1).clamp_min(1).double()
+        unshared = (inside & ~excluded[None, :]).sum(1).double() / total
+        return torch.maximum(threshold * unshared.sqrt(), torch.full_like(unshared, .5 * threshold))
+
     def refresh():
         order = torch.argsort(remaining, descending=True)[:block]
         order = order[torch.isfinite(remaining[order]) & ~fresh[order]]
         if len(order):
             rescored = _rescore(states, table, family, order, time_all, excluded)
-            remaining[order] = torch.where(rescored >= threshold, rescored, -torch.inf)
+            remaining[order] = torch.where(rescored >= required(order), rescored, -torch.inf)
             fresh[order] = True
 
     iterations = 0
@@ -521,7 +534,7 @@ def search_transits(time_bjd, flux, flux_err=None, sector=None, *, config=None, 
     families = prepare_families(t, f, error, labels, gpu64(config.durations_hours) / 24, bin_minutes=config.bin_minutes,
                                 window_min=config.window_days, window_factor=config.window_factor,
                                 window_max=config.window_max_days, clip_sigma=config.clip_sigma,
-                                centroid=centers, centroid_err=center_error)
+                                edge_trim=config.edge_trim_windows, centroid=centers, centroid_err=center_error)
     torch.cuda.synchronize()
     time_all = torch.unique(torch.cat([curve.time for curve, _ in families]))
     return _search(families, config, time.perf_counter() - start, time_all)

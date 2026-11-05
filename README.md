@@ -56,7 +56,10 @@ receives a biweight window `clamp(window_factor * D, window_days, window_max_day
 (defaults 3, 0.4 and 3.5 days); durations sharing a window form one family with
 its own detrended residual, duration noise scales and period grid. The grid
 resolution follows the family's shortest duration, so long-duration templates
-are never scanned on the finest phase grid. Periodic peaks are searched from
+are never scanned on the finest phase grid. Observations closer than
+`edge_trim_windows` (default 0.5) windows to a segment edge are dropped in each
+family, because the one-sided biweight there cannot follow the ramps that
+follow data gaps. Periodic peaks are searched from
 `period_min` to `min(period_max, baseline)`; longer periods cannot show two
 events and are covered by the unfolded single-event scan.
 
@@ -104,9 +107,10 @@ json_mapping = result.to_dict()
 The search runs in passes. Each pass scans every family, then resolves peaks
 greedily from the per-period maxima: a row is accepted when at least
 `min_events` transit epochs hold three or more observations, fewer than half
-of its in-transit observations are shared with accepted ephemerides, and its
+of its in-transit observations are shared with accepted ephemerides, its
 box-template amplitude statistic recomputed without the observations of
-accepted ephemerides still reaches the threshold, and its statistic without
+accepted ephemerides reaches the threshold scaled by the square root of its
+unshared fraction (at least half the threshold), and its statistic without
 its strongest single event keeps at least half of the threshold. The last rule
 rejects isolated events folded with an arbitrary long period. Remaining rows
 are rescored the same way, which removes period aliases and harmonics of

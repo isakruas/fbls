@@ -107,6 +107,7 @@ def main(argv=None):
     parser.add_argument("--window-days", type=float, default=.4, help="Minimum raw-input detrending window")
     parser.add_argument("--window-factor", type=float, default=3., help="Detrending window per family in transit durations")
     parser.add_argument("--window-max-days", type=float, default=3.5, help="Maximum raw-input detrending window")
+    parser.add_argument("--edge-trim-windows", type=float, default=.5, help="Drop observations within this many windows of a segment edge")
     parser.add_argument("--passes", type=int, default=3, help="Search passes; each pass masks the previous leading peak")
     parser.add_argument("--min-events", type=int, default=2, help="Minimum sampled transit epochs for a periodic peak")
     parser.add_argument("--evidence-candidates", type=int, default=32, help="Resolved peaks receiving model evidence")
@@ -160,7 +161,7 @@ def main(argv=None):
         config = SearchConfig(period_min=args.pmin, period_max=args.pmax,
             durations_hours=args.durations_hours, threshold=args.threshold, max_candidates=args.limit,
             bin_minutes=args.bin_minutes, window_days=args.window_days, window_factor=args.window_factor,
-            window_max_days=args.window_max_days, passes=args.passes, min_events=args.min_events,
+            window_max_days=args.window_max_days, edge_trim_windows=args.edge_trim_windows, passes=args.passes, min_events=args.min_events,
             evidence_candidates=args.evidence_candidates, single_events=not args.no_single_events, clip_sigma=args.clip_sigma,
             noise_degree=args.noise_degree, correlated_noise=not args.no_red_noise,
             ingress_fractions=args.ingress_fractions, shape_layers=args.shape_layers,
