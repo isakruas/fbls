@@ -10,6 +10,8 @@ copied into the data directory with the same layout the search CLI reads.
 
 Usage:
   control_sample.py --source /path/to/snapshots --per-bin 50 [--exclude tics.json ...] [--copy]
+  control_sample.py --source /path/to/snapshots --tics dev_tics.json --label development --copy
+With --tics, the listed stars are copied as the named group instead of drawing a sample.
 """
 import argparse
 import csv
@@ -44,6 +46,27 @@ def confirmed_planets(source):
     return hosts
 
 
+def copy_files(rows, source, root):
+    """Copy NPZ/JSON sector files and their FITS originals; existing files are kept."""
+    copied = 0
+    for r in rows:
+        for npz in r["files"]:
+            destination = root / "curves" / str(r["tic_id"])
+            destination.mkdir(parents=True, exist_ok=True)
+            for path in (npz, npz.with_suffix(".json")):
+                if path.exists() and not (destination / path.name).exists():
+                    shutil.copy2(path, destination / path.name)
+                    copied += 1
+            sidecar = json.loads(npz.with_suffix(".json").read_text()) if npz.with_suffix(".json").exists() else {}
+            fits = source.parent / sidecar["fits"] if sidecar.get("fits") else None
+            if fits and fits.exists():
+                (root / "mast" / "lc").mkdir(parents=True, exist_ok=True)
+                if not (root / "mast" / "lc" / fits.name).exists():
+                    shutil.copy2(fits, root / "mast" / "lc" / fits.name)
+                    copied += 1
+    return copied
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source", type=Path, default=ROOT.parents[1] / "tess" / "data")
@@ -52,8 +75,30 @@ def main():
     parser.add_argument("--seed", type=int, default=20261105)
     parser.add_argument("--root", type=Path, default=ROOT / "data")
     parser.add_argument("--copy", action="store_true", help="Copy NPZ/JSON and FITS files into --root")
+    parser.add_argument("--tics", type=Path, nargs="*", help="JSON lists of TIC IDs to copy as a named group instead of sampling")
+    parser.add_argument("--label", default="control", help="Group name used in the output file names")
     args = parser.parse_args()
     source = args.source.resolve()
+    if args.tics:
+        tics = sorted({int(t) for path in args.tics for t in json.loads(path.read_text())})
+        hosts = confirmed_planets(source)
+        rows = []
+        for tic in tics:
+            folder = source / "curves" / str(tic)
+            files = sorted(folder.glob("sector-*.npz"), key=lambda p: int(p.stem.split("-")[1])) if folder.is_dir() else []
+            if files:
+                rows.append({"tic_id": tic, "n_sectors": len(files), "sectors": " ".join(p.stem.split("-")[1] for p in files),
+                             "planets": "; ".join(f"{n} P={p:.4f} d" for n, p, _ in sorted(hosts.get(tic, []), key=lambda x: x[1])),
+                             "files": files})
+        with (OUT / f"{args.label}_targets.csv").open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=["tic_id", "planets", "n_sectors", "sectors"])
+            w.writeheader()
+            for r in rows:
+                w.writerow({k: r[k] for k in ("tic_id", "planets", "n_sectors", "sectors")})
+        print(f"{args.label}: {len(rows)} stars, {sum(r['n_sectors'] for r in rows)} sector files")
+        if args.copy:
+            print(f"copied {copy_files(rows, source, args.root)} files into {args.root}")
+        return
     excluded = set()
     for path in args.exclude:
         excluded.update(int(t) for t in json.loads(path.read_text()))
@@ -86,36 +131,20 @@ def main():
         selected.extend(pool[:args.per_bin])
         print(f"period bin {b[0]:g}-{b[1]:g} d: available {len(pool)}, selected {min(len(pool), args.per_bin)}")
     OUT.mkdir(parents=True, exist_ok=True)
-    with (OUT / "control_targets.csv").open("w", newline="") as f:
+    with (OUT / f"{args.label}_targets.csv").open("w", newline="") as f:
         fields = ["tic_id", "period_bin", "n_planets_in_range", "planets", "n_sectors", "sectors", "span_days_estimate"]
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for r in selected:
             w.writerow({k: r[k] for k in fields})
-    (OUT / "control_sources.json").write_text(json.dumps({
+    (OUT / f"{args.label}_sources.json").write_text(json.dumps({
         "source": str(source), "excluded_lists": [str(p) for p in args.exclude], "excluded_stars": len(excluded),
         "rule": "CP/KP TOIs and published transiting planets; cached span >= 2 x period of every planet in 0.5-100 d; "
                 "stratified by the longest period; seeded shuffle", "seed": args.seed, "per_bin": args.per_bin,
         "selected": len(selected), "available": {f"{b[0]:g}-{b[1]:g}": len(p) for b, p in pools.items()}}, indent=2) + "\n")
     print(f"control sample: {len(selected)} stars, {sum(r['n_sectors'] for r in selected)} sector files")
     if args.copy:
-        copied = 0
-        for r in selected:
-            for npz in r["files"]:
-                destination = args.root / "curves" / str(r["tic_id"])
-                destination.mkdir(parents=True, exist_ok=True)
-                for path in (npz, npz.with_suffix(".json")):
-                    if path.exists() and not (destination / path.name).exists():
-                        shutil.copy2(path, destination / path.name)
-                        copied += 1
-                sidecar = json.loads(npz.with_suffix(".json").read_text()) if npz.with_suffix(".json").exists() else {}
-                fits = source.parent / sidecar["fits"] if sidecar.get("fits") else None
-                if fits and fits.exists():
-                    (args.root / "mast" / "lc").mkdir(parents=True, exist_ok=True)
-                    if not (args.root / "mast" / "lc" / fits.name).exists():
-                        shutil.copy2(fits, args.root / "mast" / "lc" / fits.name)
-                        copied += 1
-        print(f"copied {copied} files into {args.root}")
+        print(f"copied {copy_files(selected, source, args.root)} files into {args.root}")
 
 
 if __name__ == "__main__":
