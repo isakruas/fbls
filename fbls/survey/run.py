@@ -247,7 +247,8 @@ def assemble(tic, root):
 
 
 def publish(tics, root, public, author):
-    """Candidate table (every vetted signal) and ExoFOP CTOI rows (new candidates), dated by the run."""
+    """Candidate table (every vetted signal) and ExoFOP CTOI rows (new periodic candidates: ExoFOP needs
+    period, epoch, depth and duration for cTOI consideration, so single events stay in the table only)."""
     from .ctoi import ctoi_row, COLUMNS
     rows, ctoi_rows = [], []
     for tic in tics:
@@ -265,7 +266,7 @@ def publish(tics, root, public, author):
                          "nfpp": (e.get("fpp") or {}).get("nfpp"),
                          "pixel_offset_arcsec": (m.get("pixel_test") or {}).get("offset_arcsec"),
                          "flags": ";".join(f"{k}={v}" for k, v in m.get("flags", {}).items())})
-            if e.get("known") is None and e["tier"].startswith(("strong", "candidate")):
+            if e.get("known") is None and e["search"] == "periodic" and e["tier"].startswith(("strong", "candidate")):
                 ctoi_rows.append(ctoi_row(e, author))
     rows.sort(key=lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0)))
     public = Path(public)
