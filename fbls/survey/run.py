@@ -380,6 +380,16 @@ def refine_folder(public, tic, today, kind="refine"):
     return Path(public) / today / kind / str(tic)
 
 
+def searched_sectors(root, tic):
+    """Sectors the survey searched: recorded in the search file, or the most recent ones on disk."""
+    from .star import SEARCH_SECTORS
+    recorded = (read(root, "search", tic) or {}).get("sectors")
+    if recorded:
+        return recorded
+    files = sorted(Path(root, "curves", str(tic)).glob("sector-*.npz"), key=lambda f: int(f.stem.split("-")[1]))
+    return [int(f.stem.split("-")[1]) for f in files[-SEARCH_SECTORS:]]
+
+
 def available_sectors(tic):
     """Sectors with a SPOC 120 s light curve of the star, from the local MAST sector manifests."""
     sys.path.insert(0, str(ROOT / "targets"))
@@ -465,8 +475,7 @@ def refine(tics, root, snapshots, public, author, config):
         if (folder / "ctoi.json").exists():
             continue
         if kind == "inconclusive":
-            searched = read(root, "search", tic).get("sectors") or []
-            extra = [x for x in available_sectors(tic) if x not in searched]
+            extra = [x for x in available_sectors(tic) if x not in searched_sectors(root, tic)]
             if not extra:
                 skipped += 1
                 continue
