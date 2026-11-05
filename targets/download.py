@@ -117,6 +117,28 @@ def fetch(row, root):
             "sha256": sidecar["fits_sha256"], "points": sidecar["points"]}
 
 
+def refresh_sidecars(root):
+    """Fill target_pixel in sidecars that lack it, from the local FITS files (APERTURE WCS)."""
+    from astropy.io import fits
+    from astropy.wcs import WCS
+    updated = 0
+    for sidecar in sorted((root / "curves").glob("*/sector-*.json")):
+        meta = json.loads(sidecar.read_text())
+        if meta.get("target_pixel"):
+            continue
+        fits_path = root / "mast" / "lc" / Path(meta.get("fits") or meta.get("product") or "").name
+        if not fits_path.exists():
+            continue
+        with fits.open(fits_path) as hdul:
+            aperture = hdul[2].header
+            x, y = WCS(aperture).all_world2pix(hdul[0].header["RA_OBJ"], hdul[0].header["DEC_OBJ"], 0)
+        meta["target_pixel"] = [float(x + aperture["CRVAL1P"]), float(y + aperture["CRVAL2P"])]
+        meta["fits"] = str(fits_path.relative_to(root))
+        sidecar.write_text(json.dumps(meta, indent=2) + "\n")
+        updated += 1
+    return updated
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
@@ -124,7 +146,11 @@ def main():
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--pilot", action="store_true", help="Only rows flagged pilot=True")
     parser.add_argument("--limit", type=int, help="Stop after this many products")
+    parser.add_argument("--refresh-sidecars", action="store_true", help="Only fill target_pixel in existing sidecars from local FITS files")
     args = parser.parse_args()
+    if args.refresh_sidecars:
+        print(f"sidecars updated: {refresh_sidecars(args.root.resolve())}")
+        return
     with args.manifest.open() as f:
         rows = [r for r in csv.DictReader(f) if not args.pilot or r.get("pilot") == "True"]
     if args.limit:
