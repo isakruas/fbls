@@ -177,8 +177,7 @@ def main():
         rows = rows[:args.limit]
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    suffix = "_tic" if args.tic else "_pilot" if args.pilot else args.manifest.stem.replace("download_manifest", "")
-    log_path = root / f"download_log{suffix}.json"
+    log_path = root / ("download_log_tic.json" if args.tic else "download_log_pilot.json" if args.pilot else "download_log.json")
     log, counts = [], {}
     started = time.time()
     with ThreadPoolExecutor(args.workers) as pool:
