@@ -1,7 +1,7 @@
 """Download the SPOC light curves listed in download_manifest.csv and convert them to NPZ.
 
 Each product is fetched from the public AWS mirror first and from the MAST URL of
-the manifest as fallback, with resume (curl --continue-at), a configurable number
+the manifest as fallback, in parallel byte ranges with resume, a configurable number
 of parallel transfers, validation of the FITS file (last TIME row readable) and a
 per-product log. Existing valid files are skipped. The NPZ layout matches the
 labeled cache (time_bjd, flux, flux_err, centr1, centr2 with default quality
@@ -17,29 +17,16 @@ import argparse
 import csv
 import hashlib
 import json
-import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fbls.survey.fetch import download
+
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path(__file__).resolve().parent / "download_manifest.csv"
 CURVE_VERSION = 2
-
-
-def curl(url, output, attempts=3):
-    """Resume-capable transfer; returns False on HTTP 404, raises on other failures."""
-    for attempt in range(attempts):
-        result = subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", "--continue-at", "-",
-                                 "--connect-timeout", "20", "--max-time", "900", "--speed-limit", "1000",
-                                 "--speed-time", "120", "--output", str(output), url], capture_output=True, text=True)
-        if result.returncode == 0:
-            return True
-        if result.returncode == 22 and "404" in result.stderr:
-            return False
-        time.sleep(3 * (attempt + 1))
-    raise RuntimeError(f"transfer failed {url}: {result.stderr.strip()[-200:]}")
 
 
 def valid_fits(path):
@@ -94,19 +81,16 @@ def fetch(row, root):
     npz = root / "curves" / str(tic) / f"sector-{sector}.npz"
     if npz.exists() and npz.with_suffix(".json").exists() and fits_path.exists():
         return {"tic": tic, "sector": sector, "status": "present"}
-    part = fits_path.with_suffix(".part")
     if not (fits_path.exists() and valid_fits(fits_path)):
         source = "mirror"
         try:
-            ok = curl(row["mirror_url"], part)
+            ok = download(row["mirror_url"], fits_path)
         except RuntimeError:
             ok = False
         if not ok:
             source = "mast"
-            part.unlink(missing_ok=True)
-            if not curl(row["download_url"], part):
+            if not download(row["download_url"], fits_path):
                 return {"tic": tic, "sector": sector, "status": "missing (404)"}
-        part.replace(fits_path)
         if not valid_fits(fits_path):
             fits_path.unlink(missing_ok=True)
             return {"tic": tic, "sector": sector, "status": "invalid FITS after transfer"}

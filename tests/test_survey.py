@@ -199,3 +199,64 @@ class RefinementOutcome(unittest.TestCase):
                                   {"survey_period_days": 3.5, "outcome": "recovered", "tier": "candidate: no FPP"}]}
         apply_refinement(rows, refined)
         self.assertEqual([r["tier"] for r in rows], [NOT_RECOVERED, "candidate: no FPP", "candidate: single event"])
+
+
+class RangedDownload(unittest.TestCase):
+    """A local server that honours Range requests; the file is fetched in segments and joined."""
+
+    def serve(self, payload, status=200):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_HEAD(self):
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Accept-Ranges", "bytes")
+                self.end_headers()
+
+            def do_GET(self):
+                if status != 200:
+                    self.send_response(status)
+                    self.end_headers()
+                    return
+                header = self.headers.get("Range")
+                start, end = 0, len(payload) - 1
+                if header:
+                    start, end = (int(x) if x else d for x, d in zip(header.split("=")[1].split("-"), (0, len(payload) - 1)))
+                    self.send_response(206)
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{len(payload)}")
+                else:
+                    self.send_response(200)
+                self.send_header("Content-Length", str(end - start + 1))
+                self.end_headers()
+                self.wfile.write(payload[start:end + 1])
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_port}/file"
+
+    def test_segments_join_to_the_original_bytes(self):
+        import os
+        import tempfile
+        from fbls.survey.fetch import download
+        payload = os.urandom(100_003)
+        url = self.serve(payload)
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "file.bin")
+            self.assertTrue(download(url, out, segments=4, min_segment=10_000))
+            with open(out, "rb") as f:
+                self.assertEqual(f.read(), payload)
+            self.assertEqual(os.listdir(folder), ["file.bin"])
+
+    def test_missing_file_returns_false(self):
+        import os
+        import tempfile
+        from fbls.survey.fetch import download
+        url = self.serve(b"", status=404)
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertFalse(download(url, os.path.join(folder, "file.bin")))
+            self.assertEqual(os.listdir(folder), [])

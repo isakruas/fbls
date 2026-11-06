@@ -5,12 +5,13 @@ pixel file (TPF) holds every pixel at every cadence. The out-of-transit image
 minus the in-transit image shows where the light was lost; a Gaussian fit
 locates the source and its offset from the target position (WCS of the same
 stamp) is the pixel-level source test. TPFs (~50 MB per sector) are fetched on
-demand, for up to three sectors that contain transits.
+demand, for up to three sectors that contain transits, in parallel byte ranges.
 """
-import subprocess
 from pathlib import Path
 
 import numpy as np
+
+from .fetch import download
 
 MAX_SECTORS = 3
 MIN_DIFFERENCE_SNR = 5.
@@ -27,25 +28,14 @@ def mirror_url(tic, sector, filename):
             f"{t[0:4]}/{t[4:8]}/{t[8:12]}/{t[12:16]}/{filename}")
 
 
-def fetch(url, output):
-    result = subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", "--continue-at", "-",
-                             "--connect-timeout", "20", "--max-time", "1800", "--output", str(output), url],
-                            capture_output=True, text=True)
-    return result.returncode == 0
-
-
 def tpf_file(star, sector, root):
     """Local TPF for a sector, downloaded on first use (AWS mirror first, MAST as fallback)."""
     name = Path(star["meta"][int(sector)]["product"]).name.replace("_lc.fits", "_tp.fits")
     path = Path(root) / "mast" / "tp" / name
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        part = path.with_suffix(".part")
-        if not fetch(mirror_url(star["tic"], sector, name), part):
-            part.unlink(missing_ok=True)
-            if not fetch(f"https://mast.stsci.edu/api/v0.1/Download/file/?uri=mast:TESS/product/{name}", part):
-                raise RuntimeError(f"TPF download failed for sector {sector}")
-        part.replace(path)
+        if not download(mirror_url(star["tic"], sector, name), path) and \
+                not download(f"https://mast.stsci.edu/api/v0.1/Download/file/?uri=mast:TESS/product/{name}", path):
+            raise RuntimeError(f"TPF download failed for sector {sector}")
     return path
 
 
