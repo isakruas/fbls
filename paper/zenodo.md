@@ -1,16 +1,19 @@
 # Zenodo deposit
 
-One Zenodo record, fed by GitHub releases (Zenodo's GitHub integration, enabled once on
-zenodo.org for this repository). Metadata come from `CITATION.cff`.
+One Zenodo record for the catalog, versioned by date. A tag `v<day>` runs
+`.github/workflows/catalog-release.yml`, which creates the GitHub release with the four files of
+`paper/deposit/<day>/` as assets and publishes them as a new version of the record
+(`paper/zenodo_upload.py`, Zenodo REST API). Nothing else goes to Zenodo, so Zenodo's own GitHub
+integration stays off for this repository.
+
+Setup, once: a Zenodo personal access token with `deposit:write` and `deposit:actions` as the
+repository secret `ZENODO_TOKEN`. After the first release, the run prints the concept record id:
+store it as the repository variable `ZENODO_RECORD` and add the DOI to `CITATION.cff`.
 
 After a publish:
 
 ```bash
-.venv/bin/python paper/build.py        # paper/deposit/<day>/ (tracked)
+.venv/bin/python paper/build.py
 git add paper/deposit && git commit -m "Catalog <day>"
-git tag v<day> && git push origin master --tags
-gh release create v<day> --title "Catalog <day>" --notes-file paper/deposit/<day>/ReadMe.txt
+git tag v<day> && git push origin master v<day>
 ```
-
-Each release becomes a new version of the record, with its own DOI; the concept DOI always
-points to the latest. Add the DOI to `CITATION.cff` (`doi:`) after the first release.
