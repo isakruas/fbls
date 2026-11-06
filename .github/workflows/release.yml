@@ -1,0 +1,19 @@
+# Tag v<day>: GitHub release with the files of paper/deposit/<day>/ as its only assets and the
+# ReadMe as its notes. Zenodo's GitHub integration turns each release into a version of the record.
+name: Catalog release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          DAY: ${{ github.ref_name }}
+        run: |
+          folder="paper/deposit/${DAY#v}"
+          gh release create "$DAY" "$folder"/* --title "Catalog ${DAY#v}" --notes-file "$folder/ReadMe.txt"
