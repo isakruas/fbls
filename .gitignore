@@ -22,3 +22,4 @@ targets/tic_cache.jsonl
 targets/*.log
 public/**/*.npz
 *.log
+run.sh
