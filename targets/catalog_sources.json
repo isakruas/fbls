@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-11-05T23:34:48.772130+00:00",
+  "generated_utc": "2026-11-06T00:14:23.363447+00:00",
   "manifests": {
     "sectors": 107,
     "url_pattern": "https://archive.stsci.edu/missions/tess/download_scripts/sector/tesscurl_sector_N_lc.sh"
@@ -47,18 +47,16 @@
     "tmag": "8 <= Tmag <= 12",
     "object": "TIC objType STAR, no non-empty disposition except SPLIT",
     "contamination": "contratio <= 0.2 when present",
-    "sectors": ">= 2 SPOC 120 s sectors",
+    "sectors": "8 SPOC 120 s sectors within one season (see search_window)",
     "priority": {
-      "A": "8 <= Tmag < 10 and >= 4 sectors",
-      "B": "10 <= Tmag <= 12 and >= 3 sectors",
-      "C": ">= 2 sectors"
+      "A": "8 <= Tmag < 10",
+      "B": "10 <= Tmag <= 12"
     },
     "ordering": "seeded shuffle within priority (seed 20261105)",
-    "search_window": "the 8 sectors spanning the shortest time (most recent window on ties)",
+    "search_window": "the largest group of sectors with gaps of at most 13 sectors, reduced to the 8 spanning the shortest time (most recent on ties)",
     "quota": {
       "A": 500,
-      "B": 350,
-      "C": 150
+      "B": 500
     }
   }
 }

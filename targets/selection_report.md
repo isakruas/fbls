@@ -1,13 +1,12 @@
-# Target selection report (2026-11-05T23:34:48.772130+00:00)
+# Target selection report (2026-11-06T00:14:23.363447+00:00)
 
 Stars with SPOC 120 s light curves in 107 sector manifests: 592556
 
 | Step | Stars |
 |---|---:|
-| available priority A | 27834 |
-| available priority B | 30950 |
-| available priority C | 77939 |
-| candidates after criteria | 136723 |
+| available priority A | 3577 |
+| available priority B | 6661 |
+| candidates after criteria | 10238 |
 | excluded: CTOI | 1986 |
 | excluded: EB | 4048 |
 | excluded: TCE | 56590 |
@@ -17,16 +16,16 @@ Stars with SPOC 120 s light curves in 107 sector manifests: 592556
 | excluded: Tmag outside 8-12 | 93427 |
 | excluded: contamination ratio > 0.2 | 11164 |
 | excluded: fewer than 2 sectors | 278678 |
+| excluded: fewer than 8 sectors within one season | 126485 |
 | excluded: no TIC row | 240 |
 | excluded: planet | 2816 |
 
 | Priority | Available | Selected |
 |---|---:|---:|
-| A | 27834 | 500 |
-| B | 30950 | 350 |
-| C | 77939 | 150 |
+| A | 3577 | 500 |
+| B | 6661 | 500 |
 
-Selected: 1000 stars, 4865 sector products (the 8 sectors spanning the shortest time), ~9.5 GB; pilot batch: 10 stars.
+Selected: 1000 stars, 8000 sector products (largest group with gaps of at most 13 sectors, at most 8 sectors), ~15.6 GB; pilot batch: 10 stars.
 
 Limitations:
 - TOI/CTOI/planet/TCE/EB catalogs are the local snapshots listed in catalog_snapshot; a star absent from them may still have been searched by SPOC, QLP or published work.

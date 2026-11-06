@@ -47,8 +47,8 @@ TCE_INDEX = "https://archive.stsci.edu/tess/bulk_downloads/bulk_downloads_tce.ht
 TCE_FILE = re.compile(r"/missions/tess/catalogs/tce/[^\"]+_dvr-tcestats\.csv")
 TIC_COLUMNS = "ID,ra,dec,Tmag,Teff,rad,mass,logg,d,contratio,objType,lumclass,disposition,duplicate_id"
 SECTOR_DAYS = 27.4
-from fbls.survey.star import SEARCH_SECTORS, search_window
-QUOTA = {"A": 500, "B": 350, "C": 150}
+from fbls.survey.star import MAX_GAP_SECTORS, SEARCH_SECTORS, search_window
+QUOTA = {"A": 500, "B": 500}
 
 
 def read_json(path):
@@ -286,17 +286,14 @@ def command_select(args):
             continue
         run = longest_run(sectors.keys())
         chosen = search_window(sectors)
+        if len(chosen) < SEARCH_SECTORS:
+            counts[f"excluded: fewer than {SEARCH_SECTORS} sectors within one season"] += 1
+            excluded_rows.append({"tic_id": t, "reason": f"{len(chosen)} sectors within one season", "n_sectors": len(sectors)})
+            continue
         starts = sorted(datetime.fromisoformat(v[2]) for v in sectors.values())
         baseline = (starts[-1] - starts[0]).days + SECTOR_DAYS
         n = len(sectors)
-        if 8. <= tmag < 10. and n >= 4:
-            priority = "A"
-        elif 10. <= tmag <= 12. and n >= 3:
-            priority = "B"
-        elif n >= 2:
-            priority = "C"
-        else:
-            continue
+        priority = "A" if tmag < 10. else "B"
         candidates.append({
             "tic_id": t, "ra": r.get("ra"), "dec": r.get("dec"), "tmag": tmag, "teff": r.get("Teff"),
             "stellar_radius": r.get("rad"), "stellar_mass": r.get("mass"), "stellar_logg": r.get("logg"),
@@ -309,13 +306,12 @@ def command_select(args):
             "quality_status": "pending download", "estimated_download_mb": round(len(chosen) * 2.0, 1),
         })
     counts["candidates after criteria"] = len(candidates)
-    # Deterministic, catalog-agnostic sample: a seeded shuffle within each priority keeps the sector-count
-    # distribution of the available pool instead of concentrating on continuous-viewing-zone stars.
+    # Deterministic, catalog-agnostic sample: a seeded shuffle within each priority.
     import random
     candidates.sort(key=lambda c: c["tic_id"])
     random.Random(args.seed).shuffle(candidates)
     selected, taken = [], Counter()
-    for priority in ("A", "B", "C"):
+    for priority in QUOTA:
         group = [c for c in candidates if c["priority"] == priority]
         selected.extend(group[:QUOTA[priority]])
         taken[priority] = min(len(group), QUOTA[priority])
@@ -365,10 +361,10 @@ def command_select(args):
             "Contamination uses the TIC contratio field; a missing value is not treated as low contamination but is not excluded either.",
         ],
         "selection_rules": {"tmag": "8 <= Tmag <= 12", "object": "TIC objType STAR, no non-empty disposition except SPLIT",
-                            "contamination": "contratio <= 0.2 when present", "sectors": ">= 2 SPOC 120 s sectors",
-                            "priority": {"A": "8 <= Tmag < 10 and >= 4 sectors", "B": "10 <= Tmag <= 12 and >= 3 sectors", "C": ">= 2 sectors"},
+                            "contamination": "contratio <= 0.2 when present", "sectors": f"{SEARCH_SECTORS} SPOC 120 s sectors within one season (see search_window)",
+                            "priority": {"A": "8 <= Tmag < 10", "B": "10 <= Tmag <= 12"},
                             "ordering": f"seeded shuffle within priority (seed {args.seed})",
-                            "search_window": f"the {SEARCH_SECTORS} sectors spanning the shortest time (most recent window on ties)",
+                            "search_window": f"the largest group of sectors with gaps of at most {MAX_GAP_SECTORS} sectors, reduced to the {SEARCH_SECTORS} spanning the shortest time (most recent on ties)",
                             "quota": QUOTA},
     }
     (OUT / "catalog_sources.json").write_text(json.dumps(sources, indent=2) + "\n")
@@ -377,9 +373,9 @@ def command_select(args):
              "| Step | Stars |", "|---|---:|"]
     lines += [f"| {k} | {v} |" for k, v in sorted(counts.items())]
     lines += ["", "| Priority | Available | Selected |", "|---|---:|---:|"]
-    lines += [f"| {p} | {counts[f'available priority {p}']} | {taken[p]} |" for p in ("A", "B", "C")]
+    lines += [f"| {p} | {counts[f'available priority {p}']} | {taken[p]} |" for p in QUOTA]
     lines += ["", f"Selected: {len(selected)} stars, {sum(c['n_search_sectors'] for c in selected)} sector products "
-              f"(the {SEARCH_SECTORS} sectors spanning the shortest time), "
+              f"(largest group with gaps of at most {MAX_GAP_SECTORS} sectors, at most {SEARCH_SECTORS} sectors), "
               f"~{sum(c['estimated_download_mb'] for c in selected) / 1024:.1f} GB; pilot batch: {len(pilot)} stars.", "",
               "Limitations:", *[f"- {x}" for x in sources["limitations"]]]
     (OUT / "selection_report.md").write_text("\n".join(lines) + "\n")
