@@ -1,19 +1,16 @@
 # Zenodo deposit
 
-Build the deposit folder after a publish, then upload the files of `paper/deposit/<day>/`
-to the Zenodo record (new version when the record exists; one folder per version):
+One Zenodo record, fed by GitHub releases (Zenodo's GitHub integration, enabled once on
+zenodo.org for this repository). Metadata come from `CITATION.cff`.
+
+After a publish:
 
 ```bash
-.venv/bin/python paper/build.py
+.venv/bin/python paper/build.py        # paper/deposit/<day>/ (tracked)
+git add paper/deposit && git commit -m "Catalog <day>"
+git tag v<day> && git push origin master --tags
+gh release create v<day> --title "Catalog <day>" --notes-file paper/deposit/<day>/ReadMe.txt
 ```
 
-Form fields:
-
-- Resource type: Dataset
-- Title: FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry
-- Creators: Isak Paulo de Andrade Ruas (NROLABS)
-- License: Creative Commons Attribution 4.0 International
-- Version: date of the publish, `YYYY-MM-DD`
-- Keywords: TESS, exoplanets, transit search, planet candidates, CTOI
-- Related works: https://github.com/isakruas/fbls (is supplemented by this software)
-- Description: paste the first paragraph and the file list of `ReadMe.txt`.
+Each release becomes a new version of the record, with its own DOI; the concept DOI always
+points to the latest. Add the DOI to `CITATION.cff` (`doi:`) after the first release.

@@ -20,4 +20,3 @@ data/snapshots/catalogs/*
 targets/tic_cache.jsonl
 .venv/
 targets/*.log
-paper/deposit/
