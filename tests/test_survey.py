@@ -187,3 +187,15 @@ class FigureTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefinementOutcome(unittest.TestCase):
+    def test_table_rows_take_the_refinement_outcome(self):
+        from fbls.survey.run import NOT_RECOVERED, apply_refinement
+        rows = [{"search": "periodic", "period_days": 26.392317, "tier": "strong: FPP < 1% and NFPP < 0.1%"},
+                {"search": "periodic", "period_days": 3.5, "tier": "candidate: likely planet"},
+                {"search": "single", "period_days": None, "tier": "candidate: single event"}]
+        refined = {"candidates": [{"survey_period_days": 26.392317, "outcome": "not recovered on the full baseline"},
+                                  {"survey_period_days": 3.5, "outcome": "recovered", "tier": "candidate: no FPP"}]}
+        apply_refinement(rows, refined)
+        self.assertEqual([r["tier"] for r in rows], [NOT_RECOVERED, "candidate: no FPP", "candidate: single event"])

@@ -488,33 +488,53 @@ def refine(tics, root, snapshots, public, author, config):
           f"{done} refined now, {skipped} inconclusive without further sectors")
 
 
-def refined_rows(public, tic):
-    """CTOI rows of a refined star (CTOI or inconclusive refinement): those of its surviving or
-    promoted candidates, [] when none survived, None when the star was not refined."""
+def refinement(public, tic):
+    """The refinement of a star (CTOI or inconclusive), None when it was not refined."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for kind in ("refine", "inconclusive"):
         out = read_file(refine_folder(public, tic, today, kind) / "ctoi.json")
         if out is not None:
-            return [c["ctoi"] for c in out["candidates"] if "ctoi" in c]
+            return out
     return None
 
 
+NOT_RECOVERED = "inconclusive: not recovered on the full baseline"
+
+
+def apply_refinement(rows, refined):
+    """Table rows of a refined star with the refinement's outcome as their tier: the refined tier of
+    a recovered signal, NOT_RECOVERED for one the full baseline did not confirm."""
+    for row in rows:
+        for c in refined["candidates"]:
+            if row["search"] == "periodic" and row["period_days"] is not None and \
+                    math.isclose(row["period_days"], c["survey_period_days"], rel_tol=1e-6):
+                row["tier"] = c["tier"] if c["outcome"] == "recovered" else NOT_RECOVERED
+    return rows
+
+
+def searched_stars(root):
+    """Every star with a survey search file."""
+    return sorted(int(p.stem) for p in (Path(root) / FOLDERS["search"]).glob("*.json") if p.stem.isdigit())
+
+
 def publish(tics, root, public, author):
-    """Cumulative `public/candidates.csv` and `public/ctoi.csv` (every star, current rules), plus the
-    folder of the day with the stars first published today and, for each of its CTOI rows, the
-    supporting figures ExoFOP asks for (with the period maxima of a fresh detector run on that star).
-    A refined star contributes its refined CTOI rows instead of the survey ones. ExoFOP needs period,
-    epoch, depth and duration for cTOI consideration, so single events stay in the candidate table only."""
+    """Cumulative `public/candidates.csv` and `public/ctoi.csv` (every searched star, whatever list it
+    came from, current rules), plus the folder of the day with the stars first published today and,
+    for each of its CTOI rows, the supporting figures ExoFOP asks for (with the period maxima of a
+    fresh detector run on that star). A refined star contributes its refined CTOI rows instead of the
+    survey ones, and its table rows carry the refinement's outcome. ExoFOP needs period, epoch, depth
+    and duration for cTOI consideration, so single events stay in the candidate table only."""
     from .ctoi import COLUMNS
     from .star import load_star
     public = Path(public)
     public.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    rows, ctoi = candidate_rows(tics, root, author)
+    rows, ctoi = candidate_rows(sorted(set(tics) | set(searched_stars(root))), root, author)
     for tic in rows:
-        refined = refined_rows(public, tic)
+        refined = refinement(public, tic)
         if refined is not None:
-            ctoi[tic] = [(None, row) for row in refined]
+            apply_refinement(rows[tic], refined)
+            ctoi[tic] = [(None, c["ctoi"]) for c in refined["candidates"] if "ctoi" in c]
         if tic in ctoi and not ctoi[tic]:
             del ctoi[tic]
     order = lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0))
