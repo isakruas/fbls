@@ -16,4 +16,5 @@ jobs:
           DAY: ${{ github.ref_name }}
         run: |
           folder="paper/deposit/${DAY#v}"
+          [ -d "$folder" ] || { echo "::error::$folder is not in the repository"; exit 1; }
           gh release create "$DAY" "$folder"/* --title "Catalog ${DAY#v}" --notes-file "$folder/ReadMe.txt"
