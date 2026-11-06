@@ -17,6 +17,7 @@ Usage:
   select_targets.py fetch-snapshots                       # MAST sector manifests and catalog snapshots
   select_targets.py fetch-tic   [--min-sectors 2]        # cache TIC rows for the candidate pool
   select_targets.py select      [--pilot 10]              # write targets_download.csv and manifests
+  select_targets.py select --sectors 2 3 --consecutive    # a second list: 2-3 consecutive sectors, files suffixed _2-3
 """
 import argparse
 import csv
@@ -286,9 +287,11 @@ def command_select(args):
             continue
         run = longest_run(sectors.keys())
         chosen = search_window(sectors)
-        if len(chosen) < SEARCH_SECTORS:
-            counts[f"excluded: fewer than {SEARCH_SECTORS} sectors within one season"] += 1
-            excluded_rows.append({"tic_id": t, "reason": f"{len(chosen)} sectors within one season", "n_sectors": len(sectors)})
+        low, high = args.sectors
+        if not (low <= len(chosen) <= high and (not args.consecutive or chosen[-1] - chosen[0] + 1 == len(chosen))):
+            counts[f"excluded: search window not {low}-{high}{' consecutive' if args.consecutive else ''} sectors within one season"] += 1
+            excluded_rows.append({"tic_id": t, "reason": f"{len(chosen)} sectors within one season, span {chosen[-1] - chosen[0] + 1}",
+                                  "n_sectors": len(sectors)})
             continue
         starts = sorted(datetime.fromisoformat(v[2]) for v in sectors.values())
         baseline = (starts[-1] - starts[0]).days + SECTOR_DAYS
@@ -320,15 +323,16 @@ def command_select(args):
     for c in pilot:
         c["pilot"] = True
     OUT.mkdir(parents=True, exist_ok=True)
+    tag = "" if tuple(args.sectors) == (SEARCH_SECTORS, SEARCH_SECTORS) else f"_{args.sectors[0]}-{args.sectors[1]}"
     fields = list(selected[0].keys()) if selected else []
     if "pilot" not in fields:
         fields.append("pilot")
-    with (OUT / "targets_download.csv").open("w", newline="") as f:
+    with (OUT / f"targets_download{tag}.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for c in selected:
             w.writerow({**c, "pilot": c.get("pilot", False)})
-    with (OUT / "download_manifest.csv").open("w", newline="") as f:
+    with (OUT / f"download_manifest{tag}.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["tic_id", "sector", "product_type", "product_source", "cadence_seconds", "mast_obsid",
                     "mast_product_uri", "download_url", "mirror_url", "filename", "file_size_bytes", "checksum", "pilot"])
@@ -341,7 +345,7 @@ def command_select(args):
                 w.writerow([c["tic_id"], sector, "light curve", "SPOC", 120, None,
                             url.split("uri=")[-1] if "uri=" in url else None, url, mirror, filename, None, None,
                             c.get("pilot", False)])
-    with (OUT / "excluded_targets.csv").open("w", newline="") as f:
+    with (OUT / f"excluded_targets{tag}.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["tic_id", "reason", "n_sectors"])
         w.writeheader()
         w.writerows(excluded_rows)
@@ -361,13 +365,13 @@ def command_select(args):
             "Contamination uses the TIC contratio field; a missing value is not treated as low contamination but is not excluded either.",
         ],
         "selection_rules": {"tmag": "8 <= Tmag <= 12", "object": "TIC objType STAR, no non-empty disposition except SPLIT",
-                            "contamination": "contratio <= 0.2 when present", "sectors": f"{SEARCH_SECTORS} SPOC 120 s sectors within one season (see search_window)",
+                            "contamination": "contratio <= 0.2 when present", "sectors": f"search window of {args.sectors[0]}-{args.sectors[1]}{' consecutive' if args.consecutive else ''} SPOC 120 s sectors within one season (see search_window)",
                             "priority": {"A": "8 <= Tmag < 10", "B": "10 <= Tmag <= 12"},
                             "ordering": f"seeded shuffle within priority (seed {args.seed})",
                             "search_window": f"the largest group of sectors with gaps of at most {MAX_GAP_SECTORS} sectors, reduced to the {SEARCH_SECTORS} spanning the shortest time (most recent on ties)",
                             "quota": QUOTA},
     }
-    (OUT / "catalog_sources.json").write_text(json.dumps(sources, indent=2) + "\n")
+    (OUT / f"catalog_sources{tag}.json").write_text(json.dumps(sources, indent=2) + "\n")
     lines = [f"# Target selection report ({started})", "",
              f"Stars with SPOC 120 s light curves in {sources['manifests']['sectors']} sector manifests: {len(table)}", "",
              "| Step | Stars |", "|---|---:|"]
@@ -378,7 +382,7 @@ def command_select(args):
               f"(largest group with gaps of at most {MAX_GAP_SECTORS} sectors, at most {SEARCH_SECTORS} sectors), "
               f"~{sum(c['estimated_download_mb'] for c in selected) / 1024:.1f} GB; pilot batch: {len(pilot)} stars.", "",
               "Limitations:", *[f"- {x}" for x in sources["limitations"]]]
-    (OUT / "selection_report.md").write_text("\n".join(lines) + "\n")
+    (OUT / f"selection_report{tag}.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 
 
@@ -397,6 +401,9 @@ def main():
     select = sub.add_parser("select")
     select.add_argument("--pilot", type=int, default=10)
     select.add_argument("--seed", type=int, default=20261105, help="Seed of the within-priority shuffle")
+    select.add_argument("--sectors", type=int, nargs=2, default=(SEARCH_SECTORS, SEARCH_SECTORS), metavar=("MIN", "MAX"),
+                        help="Sectors required in the search window; other values write suffixed files")
+    select.add_argument("--consecutive", action="store_true", help="Require the window sectors to be consecutive")
     select.set_defaults(run=command_select)
     args = parser.parse_args()
     global SOURCE
