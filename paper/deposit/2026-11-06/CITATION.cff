@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this catalog or software, please cite it as below."
+type: dataset
+title: "FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry"
+authors:
+  - family-names: "Ruas"
+    given-names: "Isak Paulo de Andrade"
+    affiliation: "NROLABS"
+repository-code: "https://github.com/isakruas/fbls"
+license: CC-BY-4.0
+keywords:
+  - TESS
+  - exoplanets
+  - transit search
+  - planet candidates
+  - CTOI
+abstract: >-
+  Transit candidates from a blind GPU search (FBLS) of TESS 2-minute SPOC light curves,
+  with automated vetting, difference-image pixel tests and TRICERATOPS false positive
+  probabilities. Each release holds the cumulative catalog (paper/deposit/<day>/: ctoi.csv,
+  candidates.csv, figures.zip, ReadMe.txt) together with the code that produced it.

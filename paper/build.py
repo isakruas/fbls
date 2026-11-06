@@ -1,5 +1,5 @@
 """Assemble the Zenodo deposit from the published survey tables: paper/deposit/<day>/ (one folder per
-Zenodo version) with the two tables, one figure folder per CTOI signal (zipped) and the ReadMe, which
+Zenodo version) with the two tables, one figure folder per CTOI signal (zipped), the ReadMe and the citation file, which
 states the version date. Rerun after every publish."""
 import csv
 import shutil
@@ -32,6 +32,7 @@ def main():
     (DEPOSIT / "figures").mkdir(parents=True)
     for name in ("ctoi.csv", "candidates.csv"):
         shutil.copy(PUBLIC / name, DEPOSIT / name)
+    shutil.copy(ROOT / "paper" / "CITATION.cff", DEPOSIT / "CITATION.cff")
     readme = (ROOT / "paper" / "ReadMe.txt").read_text().replace("Version: <date>", f"Version: {TODAY}")
     (DEPOSIT / "ReadMe.txt").write_text(readme)
     with (PUBLIC / "ctoi.csv").open() as f:

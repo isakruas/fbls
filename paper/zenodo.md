@@ -1,7 +1,7 @@
 # Zenodo deposit
 
 One Zenodo record for the catalog, versioned by date, through Zenodo's GitHub integration
-(enabled once on zenodo.org for this repository; metadata from `CITATION.cff`). Pushing a tag
+(enabled once on zenodo.org for this repository; metadata from the `CITATION.cff` of the deposit folder). Pushing a tag
 `v<day>` runs `.github/workflows/release.yml`, which creates the GitHub release with the files of
 `paper/deposit/<day>/` as its assets.
 
