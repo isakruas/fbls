@@ -1,7 +1,7 @@
 # Zenodo deposit
 
-Build the deposit folder after a publish, then upload the files of `paper/deposit/`
-to the Zenodo record (new version when the record exists):
+Build the deposit folder after a publish, then upload the files of `paper/deposit/<day>/`
+to the Zenodo record (new version when the record exists; one folder per version):
 
 ```bash
 .venv/bin/python paper/build.py

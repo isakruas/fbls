@@ -1,12 +1,16 @@
-"""Assemble the Zenodo deposit from the published survey tables: paper/deposit/ with the two tables,
-one figure folder per CTOI signal (zipped) and the ReadMe. Rerun after every publish."""
+"""Assemble the Zenodo deposit from the published survey tables: paper/deposit/<day>/ (one folder per
+Zenodo version) with the two tables, one figure folder per CTOI signal (zipped) and the ReadMe, which
+states the version date. Rerun after every publish."""
 import csv
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PUBLIC, DEPOSIT = ROOT / "public", ROOT / "paper" / "deposit"
+PUBLIC = ROOT / "public"
+TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+DEPOSIT = ROOT / "paper" / "deposit" / TODAY
 
 
 def figure_folders():
@@ -28,7 +32,8 @@ def main():
     (DEPOSIT / "figures").mkdir(parents=True)
     for name in ("ctoi.csv", "candidates.csv"):
         shutil.copy(PUBLIC / name, DEPOSIT / name)
-    shutil.copy(ROOT / "paper" / "ReadMe.txt", DEPOSIT / "ReadMe.txt")
+    readme = (ROOT / "paper" / "ReadMe.txt").read_text().replace("Version: <date>", f"Version: {TODAY}")
+    (DEPOSIT / "ReadMe.txt").write_text(readme)
     with (PUBLIC / "ctoi.csv").open() as f:
         tics = {row["TIC ID"] for row in csv.DictReader(f)}
     folders = figure_folders()
