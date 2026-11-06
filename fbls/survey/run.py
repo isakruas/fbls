@@ -565,7 +565,7 @@ def run_stage(stage, tics, args):
     for n, tic in enumerate(pending, 1):
         started = time.perf_counter()
         try:
-            if stage == "search" and read(root, "search", tic) is not None:
+            if stage == "search" and "peaks" in (read(root, "search", tic) or {}):
                 complete_residuals(tic, root, read(root, "search", tic))
                 print(f"[{n}/{len(pending)}] TIC {tic} residuals saved", flush=True)
                 continue
