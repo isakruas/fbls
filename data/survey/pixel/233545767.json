@@ -1,0 +1,69 @@
+{
+ "tic": 233545767,
+ "events": {
+  "0": {
+   "sigma": 8.485578942820105,
+   "offset_pixels": 4.001397574346456,
+   "offset_arcsec": 84.02934906127557,
+   "sectors": [
+    {
+     "sector": 48,
+     "transits": 1,
+     "difference_snr": 0.0002169180233115517,
+     "used": false
+    },
+    {
+     "sector": 50,
+     "transits": 1,
+     "difference_snr": 7.954361118771426,
+     "used": true,
+     "dx_pixels": -5.239989284957352,
+     "dy_pixels": -0.13288945321543189,
+     "dx_err": 0.7624246610202583,
+     "dy_err": 0.3635988038862545
+    },
+    {
+     "sector": 53,
+     "transits": 1,
+     "difference_snr": 8.706085212801048,
+     "used": true,
+     "dx_pixels": -2.89773504099076,
+     "dy_pixels": 3.0171964727969494,
+     "dx_err": 0.6334392650911596,
+     "dy_err": 0.4610210522994444
+    }
+   ]
+  },
+  "1": {
+   "sigma": 8.790424100502685,
+   "offset_pixels": 4.506524881674039,
+   "offset_arcsec": 94.63702251515483,
+   "sectors": [
+    {
+     "sector": 49,
+     "transits": 1,
+     "difference_snr": 4.141186805056946,
+     "used": false
+    },
+    {
+     "sector": 51,
+     "transits": 1,
+     "difference_snr": 0.006443691022010499,
+     "used": false
+    },
+    {
+     "sector": 53,
+     "transits": 1,
+     "difference_snr": 9.458007657596397,
+     "used": true,
+     "dx_pixels": -3.4620575750667792,
+     "dy_pixels": 2.88494780820554,
+     "dx_err": 0.6502484309147754,
+     "dy_err": 0.3935095695375663
+    }
+   ]
+  }
+ },
+ "seconds": 2934.163131901005,
+ "processed_utc": "2026-11-06T16:32:45.919230+00:00"
+}

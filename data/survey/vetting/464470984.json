@@ -1,0 +1,262 @@
+{
+ "tic": 464470984,
+ "baseline_days": 53.6624634033069,
+ "events": [
+  {
+   "id": 0,
+   "tic": 464470984,
+   "search": "periodic",
+   "peak": {
+    "period_days": 2.614198686108604,
+    "epoch_bjd": 2460017.4278558097,
+    "duration_hours": 13.724543102070172,
+    "snr": 14.91312553199422,
+    "snr_folded": 14.91312553199422,
+    "snr_without_strongest_event": 4.969043818587653,
+    "depth": 0.004371392628971324,
+    "depth_ppm": 4371.392628971324,
+    "events": 21,
+    "family": 7,
+    "pass": 1,
+    "planet_log_odds": null,
+    "log_bf_planet_noise": null,
+    "log_bf_binary_noise": null,
+    "binary_secondary_ratio": null,
+    "binary_secondary_phase": null,
+    "binary_odd_even_ratio": null,
+    "binary_period_days": null,
+    "ingress_fraction": null,
+    "model_preferred": false,
+    "binary_diagnostics_complete": false
+   },
+   "known": null,
+   "masks": [
+    [
+     0.6548489429918152,
+     2460014.7459906256,
+     2.9468202434631685
+    ]
+   ],
+   "metrics": {
+    "period_days": 2.614198686108604,
+    "epoch_bjd": 2460017.4278558097,
+    "duration_hours": 13.724543102070172,
+    "depth_ppm": 989.7845973982028,
+    "depth_err_ppm": 1337.036814209001,
+    "snr": -0.989423699376461,
+    "transits": 3,
+    "odd_depth_ppm": 1415.6122176305705,
+    "even_depth_ppm": 605.8602270291266,
+    "odd_even_sigma": null,
+    "secondary_depth_ppm": 1181.242631831049,
+    "secondary_sigma": 0.8584096924907784,
+    "secondary_phase": 0.4921875,
+    "secondary_albedo": null,
+    "secondary_threshold_sigma": 3.0,
+    "brightening_sigma": 7.602355578530858,
+    "ingress_fraction": 0.131337883999261,
+    "fitted_duration_hours": 7.729156484999233,
+    "fitted_duration_err_hours": 5.741807223528439,
+    "radius_earth": null,
+    "a_over_rstar": null,
+    "density_ratio": null,
+    "geometry": {
+     "impact": null,
+     "impact_err": null,
+     "inclination_deg": null,
+     "inclination_err": null,
+     "a_over_rstar_fit": null,
+     "a_over_rstar_fit_err": null,
+     "fitted_density_gcc": null,
+     "fitted_density_err": null,
+     "insolation_earth": null,
+     "insolation_err": null,
+     "teq_k": null,
+     "teq_err": null,
+     "reliable": false,
+     "unreliable": [
+      "depth",
+      "duration",
+      "ingress"
+     ]
+    },
+    "centroid_sigma": 0.38295205208719635,
+    "source_offset_arcsec": 117.21646482891039,
+    "crowdsap": 0.95053515,
+    "star": {
+     "radius": null,
+     "teff": null,
+     "logg": null,
+     "tmag": 8.23139954
+    },
+    "sectors": [
+     63,
+     64
+    ],
+    "flags": {
+     "low_snr": "fail"
+    },
+    "verdict": "fail"
+   }
+  },
+  {
+   "id": 1,
+   "tic": 464470984,
+   "search": "periodic",
+   "peak": {
+    "period_days": 0.6548489429918152,
+    "epoch_bjd": 2460014.7459906256,
+    "duration_hours": 2.9468202434631685,
+    "snr": 9.475778753481165,
+    "snr_folded": 11.42972367482951,
+    "snr_without_strongest_event": 9.171839821460235,
+    "depth": 0.003217112890266682,
+    "depth_ppm": 3217.112890266682,
+    "events": 81,
+    "family": 0,
+    "pass": 1,
+    "planet_log_odds": 2.5401947422002955,
+    "log_bf_planet_noise": 28.997547361507856,
+    "log_bf_binary_noise": 26.457352618990644,
+    "binary_secondary_ratio": 0.0,
+    "binary_secondary_phase": 0.5,
+    "binary_odd_even_ratio": 1.0,
+    "binary_period_days": 1.3096978859836303,
+    "ingress_fraction": 0.0,
+    "evidence_epoch_bjd": 2460015.4179109475,
+    "evidence_duration_hours": 0.4911367072438614,
+    "model_preferred": true,
+    "binary_diagnostics_complete": true
+   },
+   "known": null,
+   "masks": [
+    [
+     2.614198686108604,
+     2460017.4278558097,
+     13.724543102070172
+    ]
+   ],
+   "metrics": {
+    "period_days": 0.6548489429918152,
+    "epoch_bjd": 2460014.7459906256,
+    "duration_hours": 2.9468202434631685,
+    "depth_ppm": 3748.042618815498,
+    "depth_err_ppm": 371.8874954573066,
+    "snr": 9.995902439655133,
+    "transits": 59,
+    "odd_depth_ppm": 3878.660845453968,
+    "even_depth_ppm": 3480.7200116091676,
+    "odd_even_sigma": 0.5233028561765327,
+    "secondary_depth_ppm": -598.2444278317195,
+    "secondary_sigma": 0.0,
+    "secondary_phase": 0.703125,
+    "secondary_albedo": null,
+    "secondary_threshold_sigma": 3.0,
+    "brightening_sigma": 10.345750017529708,
+    "ingress_fraction": 0.3381093911322917,
+    "fitted_duration_hours": 7.367050607680882,
+    "fitted_duration_err_hours": 0.42608502482863553,
+    "radius_earth": null,
+    "a_over_rstar": null,
+    "density_ratio": null,
+    "geometry": {
+     "impact": 0.923488838822885,
+     "impact_err": 0.009444221390099927,
+     "inclination_deg": 29.763597965682436,
+     "inclination_err": 1.2161652882791838,
+     "a_over_rstar_fit": 1.0632457325743205,
+     "a_over_rstar_fit_err": 0.003948678331407107,
+     "fitted_density_gcc": 0.05302444400834189,
+     "fitted_density_err": 0.0005911353728464512,
+     "insolation_earth": null,
+     "insolation_err": null,
+     "teq_k": null,
+     "teq_err": null,
+     "reliable": true,
+     "unreliable": []
+    },
+    "centroid_sigma": 0.9687377521032133,
+    "source_offset_arcsec": 31.986865271358404,
+    "crowdsap": 0.95053515,
+    "star": {
+     "radius": null,
+     "teff": null,
+     "logg": null,
+     "tmag": 8.23139954
+    },
+    "sectors": [
+     63,
+     64
+    ],
+    "flags": {
+     "duration_too_long": "fail"
+    },
+    "verdict": "fail"
+   }
+  },
+  {
+   "id": 2,
+   "tic": 464470984,
+   "search": "single",
+   "peak": {
+    "epoch_bjd": 2460053.5224959217,
+    "duration_hours": 14.181136086231565,
+    "snr": 7.695528554119029,
+    "depth": 0.00845515793187269,
+    "depth_ppm": 8455.157931872689,
+    "points": 85
+   },
+   "known": null,
+   "metrics": {
+    "period_days": null,
+    "epoch_bjd": 2460053.5224959217,
+    "duration_hours": 14.181136086231565,
+    "depth_ppm": 8455.157931872689,
+    "depth_err_ppm": null,
+    "snr": 7.695528554119029,
+    "transits": 1,
+    "flags": {},
+    "verdict": "pass",
+    "star": {
+     "radius": null,
+     "teff": null,
+     "logg": null,
+     "tmag": 8.23139954
+    }
+   }
+  },
+  {
+   "id": 3,
+   "tic": 464470984,
+   "search": "single",
+   "peak": {
+    "epoch_bjd": 2460056.181458938,
+    "duration_hours": 14.181136086231565,
+    "snr": 7.44587559349978,
+    "depth": 0.006802931550678729,
+    "depth_ppm": 6802.931550678729,
+    "points": 85
+   },
+   "known": null,
+   "metrics": {
+    "period_days": null,
+    "epoch_bjd": 2460056.181458938,
+    "duration_hours": 14.181136086231565,
+    "depth_ppm": 6802.931550678729,
+    "depth_err_ppm": null,
+    "snr": 7.44587559349978,
+    "transits": 1,
+    "flags": {},
+    "verdict": "pass",
+    "star": {
+     "radius": null,
+     "teff": null,
+     "logg": null,
+     "tmag": 8.23139954
+    }
+   }
+  }
+ ],
+ "seconds": 0.04240214900346473,
+ "processed_utc": "2026-11-06T03:41:10.708082+00:00"
+}

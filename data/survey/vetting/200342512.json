@@ -1,0 +1,39 @@
+{
+ "tic": 200342512,
+ "baseline_days": 79.14155682409182,
+ "events": [
+  {
+   "id": 0,
+   "tic": 200342512,
+   "search": "single",
+   "peak": {
+    "epoch_bjd": 2458412.75734129,
+    "duration_hours": 22.146782210623897,
+    "snr": 7.853332947857946,
+    "depth": 0.00031239839562606,
+    "depth_ppm": 312.39839562606,
+    "points": 132
+   },
+   "known": null,
+   "metrics": {
+    "period_days": null,
+    "epoch_bjd": 2458412.75734129,
+    "duration_hours": 22.146782210623897,
+    "depth_ppm": 312.39839562606,
+    "depth_err_ppm": null,
+    "snr": 7.853332947857946,
+    "transits": 1,
+    "flags": {},
+    "verdict": "pass",
+    "star": {
+     "radius": 1.02560997,
+     "teff": 5676.0,
+     "logg": 4.42042017,
+     "tmag": 8.97239971
+    }
+   }
+  }
+ ],
+ "seconds": 0.009437786997295916,
+ "processed_utc": "2026-11-06T03:41:10.726430+00:00"
+}

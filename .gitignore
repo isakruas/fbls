@@ -20,3 +20,5 @@ data/snapshots/catalogs/*
 targets/tic_cache.jsonl
 .venv/
 targets/*.log
+public/**/*.npz
+*.log

@@ -1,0 +1,57 @@
+{
+ "tic": 125737020,
+ "events": {
+  "0": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 44,
+     "transits": 1,
+     "difference_snr": 0.6803696567341513,
+     "used": false
+    },
+    {
+     "sector": 71,
+     "transits": 1,
+     "difference_snr": 0.5546721294160626,
+     "used": false
+    }
+   ]
+  },
+  "1": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 42,
+     "transits": 1,
+     "difference_snr": 1.4903225928319412,
+     "used": false
+    }
+   ]
+  },
+  "3": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 42,
+     "transits": 1,
+     "difference_snr": 0.40792744720655155,
+     "used": false
+    },
+    {
+     "sector": 71,
+     "transits": 1,
+     "difference_snr": 0.07434844210933775,
+     "used": false
+    }
+   ]
+  }
+ },
+ "processed_utc": "2026-11-06T14:44:01.354472+00:00"
+}
