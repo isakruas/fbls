@@ -17,4 +17,4 @@ jobs:
         run: |
           folder="paper/deposit/${DAY#v}"
           [ -d "$folder" ] || { echo "::error::$folder is not in the repository"; exit 1; }
-          gh release create "$DAY" "$folder"/* --title "Catalog ${DAY#v}" --notes-file "$folder/ReadMe.txt"
+          gh release create "$DAY" "$folder"/* --title "FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry (${DAY#v})" --notes-file "$folder/ReadMe.txt"
