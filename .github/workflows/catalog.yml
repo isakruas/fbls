@@ -1,4 +1,5 @@
-# A push to main that changes paper/deposit/ (or a manual run) publishes the newest day folder: its files become the
+# A push to main that adds a day under paper/deposit/ (or a manual run, which also republishes an
+# existing day) publishes the newest day folder: its files become the
 # whole content of the orphan branch `catalog` (so the release's source archive, which Zenodo
 # archives, holds the catalog and nothing else), tagged v<day>, with the files as release assets.
 name: Catalog release
@@ -19,6 +20,9 @@ jobs:
       - name: Catalog branch, tag and release
         run: |
           day=$(ls paper/deposit | sort | tail -1)
+          if [ "${{ github.event_name }}" = push ] && gh release view "v$day" >/dev/null 2>&1; then
+            echo "v$day is already released; run the workflow by hand to republish it"; exit 0
+          fi
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git worktree add --detach catalog

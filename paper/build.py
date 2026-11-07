@@ -2,6 +2,7 @@
 Zenodo version) with the two tables, one figure folder per CTOI signal (zipped), the ReadMe and the citation file, which
 states the version date. Rerun after every publish."""
 import csv
+import json
 import os
 import re
 import shutil
@@ -26,6 +27,17 @@ def figure_folders():
     return found
 
 
+def zenodo_metadata(readme):
+    """Metadata Zenodo reads before CITATION.cff: the same content, with the record typed as a dataset."""
+    lines = readme.splitlines()
+    return {"upload_type": "dataset", "title": lines[0], "version": f"v{TODAY}", "publication_date": TODAY,
+            "creators": [{"name": "Ruas, Isak Paulo de Andrade", "affiliation": "NROLABS"}],
+            "license": "cc-by-4.0", "keywords": ["TESS", "exoplanets", "transit search", "planet candidates", "CTOI"],
+            "description": readme.split("\n\n")[1].replace("\n", " "),
+            "related_identifiers": [{"identifier": "https://github.com/isakruas/fbls", "relation": "isSupplementTo",
+                                     "resource_type": "software"}]}
+
+
 def main():
     if not (PUBLIC / "ctoi.csv").exists():
         sys.exit("nothing published yet")
@@ -38,6 +50,7 @@ def main():
     (DEPOSIT / "CITATION.cff").write_text(re.sub(r"^date-released: .*$", f"date-released: {TODAY}", citation, flags=re.M))
     readme = (ROOT / "paper" / "ReadMe.txt").read_text().replace("Version: <date>", f"Version: {TODAY}")
     (DEPOSIT / "ReadMe.txt").write_text(readme)
+    (DEPOSIT / ".zenodo.json").write_text(json.dumps(zenodo_metadata(readme), indent=2) + "\n")
     with (PUBLIC / "ctoi.csv").open() as f:
         tics = {row["TIC ID"] for row in csv.DictReader(f)}
     folders = figure_folders()
