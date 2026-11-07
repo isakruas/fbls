@@ -466,14 +466,15 @@ def refine_star(tic, peaks, root, snapshots, folder, config, author):
 
 def refine(tics, root, snapshots, public, author, config):
     """Refine, once, every star with a CTOI row and every star with an inconclusive uncatalogued
-    periodic signal that has sectors beyond the ones the survey searched."""
+    periodic signal that has sectors beyond the ones the survey searched. A star already refined
+    by either path (a CTOI that the full baseline did not confirm) is not refined again."""
     today = survey_day()
     _, ctoi = candidate_rows(tics, root, author)
     groups = {("refine", tic): [e["peak"] for e, _ in group] for tic, group in ctoi.items()}
     for tic in tics:
         peaks = [e["peak"] for e in assemble(tic, root) if e["search"] == "periodic" and "metrics" in e
                  and e.get("known") is None and e["tier"].startswith("inconclusive")]
-        if peaks and tic not in ctoi:
+        if peaks and tic not in ctoi and refinement(public, tic) is None:
             groups[("inconclusive", tic)] = peaks
     done = skipped = 0
     for (kind, tic), peaks in groups.items():
