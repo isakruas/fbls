@@ -33,7 +33,7 @@ def main():
     (DEPOSIT / "figures").mkdir(parents=True)
     for name in ("ctoi.csv", "candidates.csv"):
         shutil.copy(PUBLIC / name, DEPOSIT / name)
-    shutil.copy(ROOT / "paper" / "CITATION.cff", DEPOSIT / "CITATION.cff")
+    shutil.copy(ROOT / "CITATION.cff", DEPOSIT / "CITATION.cff")
     readme = (ROOT / "paper" / "ReadMe.txt").read_text().replace("Version: <date>", f"Version: {TODAY}")
     (DEPOSIT / "ReadMe.txt").write_text(readme)
     with (PUBLIC / "ctoi.csv").open() as f:
