@@ -84,25 +84,27 @@
   "centroid_planet_scale": 0.001,
   "centroid_binary_scale": 0.05
  },
- "baseline_days": 161.97908095363528,
+ "baseline_days": 214.36741089634597,
  "sectors": [
   2,
   3,
   4,
   5,
   6,
-  7
+  7,
+  8,
+  9
  ],
  "statistics": {
-  "observations": 18159,
-  "baseline_days": 161.57074827700853,
-  "periods_tested": 185223,
+  "observations": 23698,
+  "baseline_days": 213.95907862111926,
+  "periods_tested": 245339,
   "resolved_peaks": 0,
   "single_events": 0,
-  "seconds_total": 43.7930535839987
+  "seconds_total": 35.17930734998663
  },
  "peaks": [],
  "single_events": [],
- "seconds": 43.826690661982866,
- "processed_utc": "2026-11-06T00:18:50.589947+00:00"
+ "seconds": 35.4679032159911,
+ "processed_utc": "2026-11-06T19:38:03.078053+00:00"
 }
