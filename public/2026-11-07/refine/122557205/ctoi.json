@@ -1,0 +1,22 @@
+{
+ "tic": 122557205,
+ "sectors": [
+  3,
+  4,
+  30
+ ],
+ "baseline_days": 755.2138000167906,
+ "candidates": [
+  {
+   "survey_period_days": 19.480371625011966,
+   "survey_snr": 7.38761262543065,
+   "outcome": "recovered",
+   "tier": "rejected: vetting",
+   "signal": 0,
+   "snr": 7.5503355838724096,
+   "period_days": 19.394694239017888,
+   "transits": 3
+  }
+ ],
+ "processed_utc": "2026-11-07T08:42:53.335798+00:00"
+}

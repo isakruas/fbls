@@ -1,0 +1,140 @@
+{
+ "tic": 361418682,
+ "baseline_days": 50.76680039288476,
+ "events": [
+  {
+   "id": 0,
+   "tic": 361418682,
+   "search": "periodic",
+   "peak": {
+    "period_days": 0.5309112977775825,
+    "epoch_bjd": 2459282.2019727277,
+    "duration_hours": 2.986376049998902,
+    "snr": 11.482345157373109,
+    "snr_folded": 11.482345157373109,
+    "snr_without_strongest_event": 11.173971576043396,
+    "depth": 0.0002603940977585897,
+    "depth_ppm": 260.3940977585897,
+    "events": 82,
+    "family": 0,
+    "pass": 1,
+    "planet_log_odds": 1.5056852041333109,
+    "log_bf_planet_noise": 31.938048212981144,
+    "log_bf_binary_noise": 30.432363008841882,
+    "binary_secondary_ratio": 1.0,
+    "binary_secondary_phase": 0.5,
+    "binary_odd_even_ratio": 1.0,
+    "binary_period_days": 0.5309112977775825,
+    "ingress_fraction": 0.0,
+    "evidence_epoch_bjd": 2459282.212076208,
+    "evidence_duration_hours": 0.4900719671793069,
+    "model_preferred": true,
+    "binary_diagnostics_complete": true
+   },
+   "known": null,
+   "masks": [],
+   "metrics": {
+    "period_days": 0.5309112977775825,
+    "epoch_bjd": 2459282.2019727277,
+    "duration_hours": 2.986376049998902,
+    "depth_ppm": 200.91055765226048,
+    "depth_err_ppm": 28.53312734230406,
+    "snr": 6.505200253632152,
+    "transits": 81,
+    "odd_depth_ppm": 215.2408540507324,
+    "even_depth_ppm": 186.89314982144074,
+    "odd_even_sigma": 0.4967204799974868,
+    "secondary_depth_ppm": 189.86894496233552,
+    "secondary_sigma": 6.661674184031274,
+    "secondary_phase": 0.484375,
+    "secondary_albedo": 1.8678222078333397,
+    "secondary_threshold_sigma": 3.0,
+    "brightening_sigma": 4.626830525695068,
+    "ingress_fraction": 0.4818307432849908,
+    "fitted_duration_hours": 4.009522104475847,
+    "fitted_duration_err_hours": 1.246006897259174,
+    "radius_earth": 3.1705844438848736,
+    "a_over_rstar": 1.405860336366983,
+    "density_ratio": 0.3885826720272156,
+    "geometry": {
+     "impact": null,
+     "impact_err": null,
+     "inclination_deg": null,
+     "inclination_err": null,
+     "a_over_rstar_fit": null,
+     "a_over_rstar_fit_err": null,
+     "fitted_density_gcc": null,
+     "fitted_density_err": null,
+     "insolation_earth": 28957.33054552773,
+     "insolation_err": 6483.574349851411,
+     "teq_k": 3630.77534881016,
+     "teq_err": 199.9998692233239,
+     "reliable": false,
+     "unreliable": [
+      "depth",
+      "duration",
+      "ingress"
+     ]
+    },
+    "centroid_sigma": 0.3515913465706228,
+    "source_offset_arcsec": 79.9581540529601,
+    "crowdsap": 0.905978795,
+    "star": {
+     "radius": 2.05028009,
+     "teff": 6092.0,
+     "logg": 3.87135005,
+     "tmag": 9.75010014
+    },
+    "sectors": [
+     36,
+     37
+    ],
+    "flags": {
+     "low_snr": "fail",
+     "secondary_eclipse": "fail",
+     "duration_too_long": "fail",
+     "v_shape": "warn"
+    },
+    "verdict": "fail"
+   }
+  },
+  {
+   "id": 1,
+   "tic": 361418682,
+   "search": "periodic",
+   "peak": {
+    "period_days": 0.531057744189747,
+    "epoch_bjd": 2459282.445424916,
+    "duration_hours": 2.987199811067327,
+    "snr": 11.353784523303027,
+    "snr_folded": 11.353784523303027,
+    "snr_without_strongest_event": 11.036636197595076,
+    "depth": 0.00025677993641391657,
+    "depth_ppm": 256.7799364139166,
+    "events": 83,
+    "family": 0,
+    "pass": 1,
+    "planet_log_odds": 1.4360783973398412,
+    "log_bf_planet_noise": 24.2491101818352,
+    "log_bf_binary_noise": 22.813031772371183,
+    "binary_secondary_ratio": 1.0,
+    "binary_secondary_phase": 0.5,
+    "binary_odd_even_ratio": 1.0,
+    "binary_period_days": 0.531057744189747,
+    "ingress_fraction": 0.0,
+    "evidence_epoch_bjd": 2459282.462339616,
+    "evidence_duration_hours": 0.49020714848284347,
+    "model_preferred": true,
+    "binary_diagnostics_complete": true
+   },
+   "known": null,
+   "related": {
+    "period_days": 0.5309112977775825,
+    "snr": 11.482345157373109
+   },
+   "tier": "duplicate: harmonic or secondary of a stronger signal"
+  }
+ ],
+ "seconds": 0.030015114025445655,
+ "processed_utc": "2026-11-07T05:58:36.760312+00:00"
+}

@@ -1,0 +1,24 @@
+{
+ "tic": 356823539,
+ "sectors": [
+  14,
+  15,
+  16,
+  17,
+  19,
+  20,
+  22,
+  23,
+  25,
+  26
+ ],
+ "baseline_days": 351.7803458971903,
+ "candidates": [
+  {
+   "survey_period_days": 83.47424677675923,
+   "survey_snr": 11.472423728252258,
+   "outcome": "not recovered on the full baseline"
+  }
+ ],
+ "processed_utc": "2026-11-07T05:05:40.902172+00:00"
+}

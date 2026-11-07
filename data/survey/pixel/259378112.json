@@ -1,0 +1,108 @@
+{
+ "tic": 259378112,
+ "events": {
+  "0": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 4,
+     "transits": 1,
+     "difference_snr": 1.2840907278978608,
+     "used": false
+    },
+    {
+     "sector": 5,
+     "transits": 1,
+     "difference_snr": 0.19766729118795207,
+     "used": false
+    }
+   ]
+  },
+  "1": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 4,
+     "transits": 1,
+     "difference_snr": 0.001802796908057729,
+     "used": false
+    },
+    {
+     "sector": 5,
+     "transits": 1,
+     "difference_snr": 0.00034942910596633933,
+     "used": false
+    }
+   ]
+  },
+  "2": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 3,
+     "transits": 1,
+     "difference_snr": 0.0005610202396171671,
+     "used": false
+    },
+    {
+     "sector": 4,
+     "transits": 2,
+     "difference_snr": 1.0461939984400723,
+     "used": false
+    },
+    {
+     "sector": 5,
+     "transits": 1,
+     "difference_snr": 0.0071384639395191,
+     "used": false
+    }
+   ]
+  },
+  "3": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 4,
+     "transits": 1,
+     "difference_snr": 1.0089415311864398,
+     "used": false
+    },
+    {
+     "sector": 5,
+     "transits": 1,
+     "difference_snr": 1.0539035647938806,
+     "used": false
+    }
+   ]
+  },
+  "5": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 4,
+     "transits": 1,
+     "difference_snr": 1.4658608749542195,
+     "used": false
+    },
+    {
+     "sector": 5,
+     "transits": 1,
+     "difference_snr": 0.0076341776637474075,
+     "used": false
+    }
+   ]
+  }
+ },
+ "seconds": 421.257025170984,
+ "processed_utc": "2026-11-07T06:42:57.769043+00:00"
+}

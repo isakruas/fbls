@@ -1,0 +1,36 @@
+{
+ "tic": 358955398,
+ "events": {
+  "0": {
+   "sigma": 1.319448148624753,
+   "offset_pixels": 0.35923085722140097,
+   "offset_arcsec": 7.543848001649421,
+   "sectors": [
+    {
+     "sector": 99,
+     "transits": 1,
+     "difference_snr": 5.004845077768523,
+     "used": true,
+     "dx_pixels": 0.2318287427140513,
+     "dy_pixels": -0.2744125413162539,
+     "dx_err": 0.18704830007442735,
+     "dy_err": 0.20357820745655936
+    },
+    {
+     "sector": 100,
+     "transits": 1,
+     "difference_snr": 0.03562979465564989,
+     "used": false
+    },
+    {
+     "sector": 101,
+     "transits": 1,
+     "difference_snr": 0.9713799499321035,
+     "used": false
+    }
+   ]
+  }
+ },
+ "seconds": 422.8288397520082,
+ "processed_utc": "2026-11-07T06:05:46.659836+00:00"
+}

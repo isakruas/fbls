@@ -1,0 +1,26 @@
+{
+ "tic": 396955365,
+ "events": {
+  "1": {
+   "sigma": null,
+   "offset_pixels": null,
+   "offset_arcsec": null,
+   "sectors": [
+    {
+     "sector": 45,
+     "transits": 1,
+     "difference_snr": 4.712578096395009,
+     "used": false
+    },
+    {
+     "sector": 46,
+     "transits": 1,
+     "difference_snr": 0.002054206802823483,
+     "used": false
+    }
+   ]
+  }
+ },
+ "seconds": 269.5716626070207,
+ "processed_utc": "2026-11-07T06:23:47.546540+00:00"
+}

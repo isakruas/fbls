@@ -8,8 +8,8 @@ authors:
     affiliation: "NROLABS"
 repository-code: "https://github.com/isakruas/fbls"
 doi: 10.5281/zenodo.24026413
-version: v2026-11-06
-date-released: 2026-11-06
+version: v2026-11-07
+date-released: 2026-11-07
 license: CC-BY-4.0
 keywords:
   - TESS
