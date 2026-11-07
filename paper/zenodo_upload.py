@@ -27,6 +27,11 @@ def main(folder):
     folder = Path(folder)
     metadata = json.loads((folder / ".zenodo.json").read_text())
     concept = os.environ.get("ZENODO_RECORD") or CONCEPT
+    published = call("GET", f"{API}/records?q=conceptrecid:{concept}&all_versions=true&size=100")["hits"]["hits"]
+    same = [r for r in published if r["metadata"].get("version") == metadata["version"]]
+    if same:
+        print(f"version {metadata['version']} is already published as {same[0]['doi']}; nothing to do")
+        return
     latest = call("GET", f"{API}/records/{concept}")["id"]
     draft = call("POST", f"{API}/deposit/depositions/{latest}/actions/newversion")
     draft = call("GET", draft["links"]["latest_draft"])
