@@ -3,6 +3,7 @@ Zenodo version) with the two tables, one figure folder per CTOI signal (zipped),
 states the version date. Rerun after every publish."""
 import csv
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -33,7 +34,8 @@ def main():
     (DEPOSIT / "figures").mkdir(parents=True)
     for name in ("ctoi.csv", "candidates.csv"):
         shutil.copy(PUBLIC / name, DEPOSIT / name)
-    shutil.copy(ROOT / "CITATION.cff", DEPOSIT / "CITATION.cff")
+    citation = re.sub(r"^version: .*$", f"version: v{TODAY}", (ROOT / "CITATION.cff").read_text(), flags=re.M)
+    (DEPOSIT / "CITATION.cff").write_text(re.sub(r"^date-released: .*$", f"date-released: {TODAY}", citation, flags=re.M))
     readme = (ROOT / "paper" / "ReadMe.txt").read_text().replace("Version: <date>", f"Version: {TODAY}")
     (DEPOSIT / "ReadMe.txt").write_text(readme)
     with (PUBLIC / "ctoi.csv").open() as f:
