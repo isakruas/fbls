@@ -99,7 +99,7 @@ class CtoiRowTest(unittest.TestCase):
 class TierTest(unittest.TestCase):
     def event(self, star, fpp=None):
         return {"search": "periodic", "peak": {"model_preferred": True}, "fpp": fpp,
-                "metrics": {"verdict": "pass", "star": star}}
+                "metrics": {"verdict": "pass", "star": star, "transits": 3}}
 
     def test_strong_needs_stellar_parameters(self):
         from fbls.survey.run import tier
@@ -107,6 +107,12 @@ class TierTest(unittest.TestCase):
         self.assertTrue(tier(self.event({"radius": 1., "teff": 5800.}, fpp)).startswith("strong"))
         self.assertEqual(tier(self.event({"radius": None, "teff": None}, fpp)), "candidate: no stellar parameters")
         self.assertEqual(tier(self.event({"radius": 1., "teff": 5800.})), "candidate: no FPP")
+
+    def test_two_transits_are_not_periodic(self):
+        from fbls.survey.run import tier
+        event = self.event({"radius": 1., "teff": 5800.}, {"fpp": 1e-4, "nfpp": 0.})
+        event["metrics"]["transits"] = 2
+        self.assertEqual(tier(event), "unconfirmed: fewer than 3 transits")
 
 
 

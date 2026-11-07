@@ -36,7 +36,10 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 AUTHOR = "Isak Paulo de Andrade Ruas"
-TIER_ORDER = ("strong", "candidate", "inconclusive", "rejected", "duplicate")
+TIER_ORDER = ("strong", "candidate", "unconfirmed", "inconclusive", "rejected", "duplicate")
+# Transits a periodic signal must show to be called periodic: with two, a real event plus an aligned
+# noise dip always yields some period above threshold, and the full baseline has rejected every such case.
+MIN_TRANSITS = 3
 STAGES = ("search", "vet", "pixel", "fpp", "refine", "publish")
 FOLDERS = {"search": "survey/search", "vet": "survey/vetting", "pixel": "survey/pixel", "fpp": "survey/fpp"}
 
@@ -92,8 +95,10 @@ def related_peak(peak, stronger):
 
 
 def tier(event):
-    """Tier from vetting, model evidence and FPP; no learned classifier is involved. Without stellar
-    radius and temperature the radius, density and FPP tests are meaningless, so the signal stays a candidate."""
+    """Tier from vetting, model evidence and FPP; no learned classifier is involved. A periodic signal
+    with fewer than MIN_TRANSITS transits is unconfirmed (no CTOI row; refined when more sectors exist).
+    Without stellar radius and temperature the radius, density and FPP tests are meaningless, so the
+    signal stays a candidate."""
     m, fpp = event["metrics"], event.get("fpp") or {}
     if m["verdict"] == "fail":
         return "rejected: vetting"
@@ -102,6 +107,8 @@ def tier(event):
     preferred = bool(event["peak"].get("model_preferred"))
     if event.get("search") == "single":
         return "candidate: single event"
+    if (m.get("transits") or 0) < MIN_TRANSITS:
+        return f"unconfirmed: fewer than {MIN_TRANSITS} transits"
     star = m.get("star") or {}
     if not (star.get("radius") and star.get("teff")):
         return "candidate: no stellar parameters"
@@ -465,15 +472,15 @@ def refine_star(tic, peaks, root, snapshots, folder, config, author):
 
 
 def refine(tics, root, snapshots, public, author, config):
-    """Refine, once, every star with a CTOI row and every star with an inconclusive uncatalogued
-    periodic signal that has sectors beyond the ones the survey searched. A star already refined
+    """Refine, once, every star with a CTOI row and every star with an unconfirmed or inconclusive
+    uncatalogued periodic signal that has sectors beyond the ones the survey searched. A star already refined
     by either path (a CTOI that the full baseline did not confirm) is not refined again."""
     today = survey_day()
     _, ctoi = candidate_rows(tics, root, author)
     groups = {("refine", tic): [e["peak"] for e, _ in group] for tic, group in ctoi.items()}
     for tic in tics:
         peaks = [e["peak"] for e in assemble(tic, root) if e["search"] == "periodic" and "metrics" in e
-                 and e.get("known") is None and e["tier"].startswith("inconclusive")]
+                 and e.get("known") is None and e["tier"].startswith(("unconfirmed", "inconclusive"))]
         if peaks and tic not in ctoi and refinement(public, tic) is None:
             groups[("inconclusive", tic)] = peaks
     done = skipped = 0
