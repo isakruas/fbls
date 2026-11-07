@@ -554,10 +554,12 @@ def publish(tics, root, public, author):
             for e, _ in new_ctoi:
                 if e is None:
                     continue  # refined: its figures are in the refine folder
+                folder = day / "figures" / f"{e['tic']}_{e['id']}"
+                if folder.exists():
+                    continue  # drawn by an earlier publish today
                 star = load_star(root, e["tic"])
                 maxima = period_maxima(star, search_config(read(root, "search", e["tic"])["config"]))
-                figures_for(e, star, load_residuals(residuals_path(root, e["tic"])), maxima, event_title(e),
-                            day / "figures" / f"{e['tic']}_{e['id']}", root)
+                figures_for(e, star, load_residuals(residuals_path(root, e["tic"])), maxima, event_title(e), folder, root)
     return len(everything), sum(len(g) for g in ctoi.values()), len(new)
 
 
