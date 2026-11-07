@@ -202,9 +202,16 @@ class RefinementOutcome(unittest.TestCase):
                 {"search": "periodic", "period_days": 3.5, "tier": "candidate: likely planet"},
                 {"search": "single", "period_days": None, "tier": "candidate: single event"}]
         refined = {"candidates": [{"survey_period_days": 26.392317, "outcome": "not recovered on the full baseline"},
-                                  {"survey_period_days": 3.5, "outcome": "recovered", "tier": "candidate: no FPP"}]}
+                                  {"survey_period_days": 3.5, "outcome": "recovered", "tier": "candidate: no FPP", "transits": 4}]}
         apply_refinement(rows, refined)
         self.assertEqual([r["tier"] for r in rows], [NOT_RECOVERED, "candidate: no FPP", "candidate: single event"])
+
+    def test_refined_rows_follow_the_transit_rule(self):
+        from fbls.survey.run import refined_ctoi_rows
+        refined = {"candidates": [{"outcome": "recovered", "tier": "candidate: likely planet", "transits": 2, "ctoi": {"TIC ID": 1}},
+                                  {"outcome": "recovered", "tier": "candidate: likely planet", "transits": 3, "ctoi": {"TIC ID": 2}},
+                                  {"outcome": "not recovered on the full baseline", "ctoi": {"TIC ID": 3}}]}
+        self.assertEqual([row["TIC ID"] for _, row in refined_ctoi_rows(refined)], [2])
 
 
 class RangedDownload(unittest.TestCase):

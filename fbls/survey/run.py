@@ -524,8 +524,22 @@ def apply_refinement(rows, refined):
         for c in refined["candidates"]:
             if row["search"] == "periodic" and row["period_days"] is not None and \
                     math.isclose(row["period_days"], c["survey_period_days"], rel_tol=1e-6):
-                row["tier"] = c["tier"] if c["outcome"] == "recovered" else NOT_RECOVERED
+                row["tier"] = refined_tier(c)
     return rows
+
+
+def refined_tier(candidate):
+    """Tier of a refined candidate under the current rules."""
+    if candidate["outcome"] != "recovered":
+        return NOT_RECOVERED
+    if (candidate.get("transits") or 0) < MIN_TRANSITS:
+        return f"unconfirmed: fewer than {MIN_TRANSITS} transits"
+    return candidate["tier"]
+
+
+def refined_ctoi_rows(refined):
+    """CTOI rows of a refinement: its recovered candidates that are candidates under the current rules."""
+    return [(None, c["ctoi"]) for c in refined["candidates"] if "ctoi" in c and refined_tier(c).startswith(("strong", "candidate"))]
 
 
 def searched_stars(root):
@@ -550,7 +564,7 @@ def publish(tics, root, public, author):
         refined = refinement(public, tic)
         if refined is not None:
             apply_refinement(rows[tic], refined)
-            ctoi[tic] = [(None, c["ctoi"]) for c in refined["candidates"] if "ctoi" in c]
+            ctoi[tic] = refined_ctoi_rows(refined)
         if tic in ctoi and not ctoi[tic]:
             del ctoi[tic]
     order = lambda r: (rank(r["tier"]), r["known"] is not None, -(r["detector_snr"] or 0))
