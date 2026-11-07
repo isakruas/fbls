@@ -1,7 +1,8 @@
 # A push to main that adds a day under paper/deposit/ (or a manual run, which also republishes an
 # existing day) publishes the newest day folder: its files become the
 # whole content of the orphan branch `catalog` (so the release's source archive, which Zenodo
-# archives, holds the catalog and nothing else), tagged v<day>, with the files as release assets.
+# archives, holds the catalog and nothing else), tagged v<day>, with the files as release assets;
+# then the same files become a new version of the Zenodo record (paper/zenodo_upload.py).
 name: Catalog release
 on:
   push:
@@ -37,3 +38,11 @@ jobs:
           gh release create "v$day" ./* --target catalog \
             --title "FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry" \
             --notes-file ReadMe.txt
+      - name: Zenodo version with the same files at the root of the record
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+          ZENODO_RECORD: ${{ vars.ZENODO_RECORD }}
+        run: |
+          day=$(ls paper/deposit | sort | tail -1)
+          [ -n "$ZENODO_TOKEN" ] || { echo "::warning::ZENODO_TOKEN is not set; no Zenodo version published"; exit 0; }
+          python paper/zenodo_upload.py "paper/deposit/$day"
