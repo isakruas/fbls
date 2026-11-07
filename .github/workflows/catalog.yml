@@ -1,13 +1,12 @@
-# A push to main that adds a day under paper/deposit/ (or a manual run, which also republishes an
-# existing day) publishes the newest day folder: its files become the
-# whole content of the orphan branch `catalog` (so the release's source archive, which Zenodo
-# archives, holds the catalog and nothing else), tagged v<day>, with the files as release assets;
-# then the same files become a new version of the Zenodo record (paper/zenodo_upload.py).
+# A push to main publishes the newest day of public/ as a catalog release, unless that day is
+# already released (a manual run republishes it): paper/build.py assembles the deposit from
+# public/, its files become the whole content of the orphan branch `catalog` (so the release's
+# source archive holds the catalog and nothing else), tagged v<day>, with the files as release
+# assets; then the same files become a new version of the Zenodo record (paper/zenodo_upload.py).
 name: Catalog release
 on:
   push:
     branches: [main]
-    paths: ["paper/deposit/**"]
   workflow_dispatch:
 jobs:
   release:
@@ -18,12 +17,19 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-      - name: Catalog branch, tag and release
+      - name: Deposit of the newest published day
+        id: deposit
         run: |
-          day=$(ls paper/deposit | sort | tail -1)
+          day=$(ls -d public/*-*-* | xargs -n1 basename | sort | tail -1)
           if [ "${{ github.event_name }}" = push ] && gh release view "v$day" >/dev/null 2>&1; then
             echo "v$day is already released; run the workflow by hand to republish it"; exit 0
           fi
+          FBLS_DAY=$day python paper/build.py
+          echo "day=$day" >> "$GITHUB_OUTPUT"
+      - name: Catalog branch, tag and release
+        if: steps.deposit.outputs.day
+        run: |
+          day=${{ steps.deposit.outputs.day }}
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git worktree add --detach catalog
@@ -39,10 +45,10 @@ jobs:
             --title "FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry" \
             --notes-file ReadMe.txt
       - name: Zenodo version with the same files at the root of the record
+        if: steps.deposit.outputs.day
         env:
           ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
           ZENODO_RECORD: ${{ vars.ZENODO_RECORD }}
         run: |
-          day=$(ls paper/deposit | sort | tail -1)
           [ -n "$ZENODO_TOKEN" ] || { echo "::warning::ZENODO_TOKEN is not set; no Zenodo version published"; exit 0; }
-          python paper/zenodo_upload.py "paper/deposit/$day"
+          python paper/zenodo_upload.py "paper/deposit/${{ steps.deposit.outputs.day }}"

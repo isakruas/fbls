@@ -1,6 +1,6 @@
-"""Assemble the Zenodo deposit from the published survey tables: paper/deposit/<day>/ (one folder per
-Zenodo version) with the two tables, one figure folder per CTOI signal (zipped), the ReadMe and the citation file, which
-states the version date. Rerun after every publish."""
+"""Assemble the Zenodo deposit from the published survey tables: paper/deposit/<day>/ (not tracked; the
+release workflow builds it from public/) with the two tables, one figure folder per CTOI signal (zipped), the ReadMe
+and the citation file, which states the version date."""
 import csv
 import json
 import os
