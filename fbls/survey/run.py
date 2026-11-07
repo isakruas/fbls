@@ -25,6 +25,7 @@ import copy
 import csv
 import json
 import math
+import os
 import subprocess
 import sys
 import time
@@ -371,6 +372,12 @@ def event_title(e):
     return f"TIC {e['tic']}  P = {m['period_days']:.4f} d  depth {m['depth_ppm']:.0f} ppm  {m['transits']} transits  {e['tier']}"
 
 
+def survey_day():
+    """The day folder under public/: FBLS_DAY when set (run.sh fixes it once per run, so a run that
+    crosses midnight stays in one folder), otherwise today in UTC."""
+    return os.environ.get("FBLS_DAY") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def refine_folder(public, tic, today, kind="refine"):
     """The folder of a star's refinement (`refine` for CTOI stars, `inconclusive` for the others):
     an earlier day's if it exists, otherwise today's."""
@@ -460,7 +467,7 @@ def refine_star(tic, peaks, root, snapshots, folder, config, author):
 def refine(tics, root, snapshots, public, author, config):
     """Refine, once, every star with a CTOI row and every star with an inconclusive uncatalogued
     periodic signal that has sectors beyond the ones the survey searched."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = survey_day()
     _, ctoi = candidate_rows(tics, root, author)
     groups = {("refine", tic): [e["peak"] for e, _ in group] for tic, group in ctoi.items()}
     for tic in tics:
@@ -490,7 +497,7 @@ def refine(tics, root, snapshots, public, author, config):
 
 def refinement(public, tic):
     """The refinement of a star (CTOI or inconclusive), None when it was not refined."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = survey_day()
     for kind in ("refine", "inconclusive"):
         out = read_file(refine_folder(public, tic, today, kind) / "ctoi.json")
         if out is not None:
@@ -528,7 +535,7 @@ def publish(tics, root, public, author):
     from .star import load_star
     public = Path(public)
     public.mkdir(parents=True, exist_ok=True)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = survey_day()
     rows, ctoi = candidate_rows(sorted(set(tics) | set(searched_stars(root))), root, author)
     for tic in rows:
         refined = refinement(public, tic)

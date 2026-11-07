@@ -2,6 +2,7 @@
 Zenodo version) with the two tables, one figure folder per CTOI signal (zipped), the ReadMe and the citation file, which
 states the version date. Rerun after every publish."""
 import csv
+import os
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -9,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public"
-TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+TODAY = os.environ.get("FBLS_DAY") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 DEPOSIT = ROOT / "paper" / "deposit" / TODAY
 
 
