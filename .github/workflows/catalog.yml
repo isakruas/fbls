@@ -1,11 +1,12 @@
-# A push to main that changes paper/deposit/ publishes the newest day folder: its files become the
+# A push to main that changes paper/deposit/ (or a manual run) publishes the newest day folder: its files become the
 # whole content of the orphan branch `catalog` (so the release's source archive, which Zenodo
 # archives, holds the catalog and nothing else), tagged v<day>, with the files as release assets.
 name: Catalog release
 on:
   push:
     branches: [main]
-    paths: ["paper/deposit/**", ".github/workflows/catalog.yml"]
+    paths: ["paper/deposit/**"]
+  workflow_dispatch:
 jobs:
   release:
     runs-on: ubuntu-latest
