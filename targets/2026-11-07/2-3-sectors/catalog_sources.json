@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-11-07T00:51:00.874150+00:00",
+  "generated_utc": "2026-11-07T00:54:37.864633+00:00",
   "manifests": {
     "sectors": 107,
     "url_pattern": "https://archive.stsci.edu/missions/tess/download_scripts/sector/tesscurl_sector_N_lc.sh"
@@ -35,8 +35,8 @@
     "TCE": 68456,
     "ExoFOP TOI table": 7826,
     "development and control groups": 487,
-    "earlier list targets_download.csv": 1000,
-    "earlier list targets_download_2-3.csv": 1000
+    "earlier list 2026-11-06/2-3-sectors": 1000,
+    "earlier list 2026-11-06/8-sectors": 1000
   },
   "limitations": [
     "TOI/CTOI/planet/TCE/EB catalogs are the local snapshots listed in catalog_snapshot; a star absent from them may still have been searched by SPOC, QLP or published work.",

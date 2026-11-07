@@ -18,8 +18,8 @@ Usage:
   select_targets.py fetch-tic   [--min-sectors 2]        # cache TIC rows for the candidate pool
   select_targets.py select      [--pilot 10]              # targets/<day>/8-sectors/: targets_download.csv, manifests, report
   select_targets.py select --sectors 2 3 --consecutive    # targets/<day>/2-3-sectors/: 2-3 consecutive sectors
-  select_targets.py select --sectors 2 3 --consecutive --quota 1000 1000 \
-      --exclude targets/*/*/targets_download.csv            # 2,000 more, none repeated from earlier lists
+  select_targets.py select --sectors 2 3 --consecutive --max-total 3 --quota 1000 1000   # 2,000 stars with 2-3 sectors in all
+Stars of every earlier list under targets/<day>/<list>/ are always left out.
 """
 import argparse
 import csv
@@ -250,9 +250,9 @@ def command_select(args):
     started = datetime.now(timezone.utc).isoformat()
     table = products()
     by_catalog = exclusions()
-    for path in args.exclude:
+    for path in sorted(OUT.glob("*/*/targets_download.csv")):
         with path.open() as f:
-            by_catalog[f"earlier list {path.name}"] = {int(r["tic_id"]) for r in csv.DictReader(f)}
+            by_catalog[f"earlier list {path.parent.relative_to(OUT)}"] = {int(r["tic_id"]) for r in csv.DictReader(f)}
     tic = {}
     with TIC_CACHE.open() as f:
         for line in f:
@@ -297,6 +297,10 @@ def command_select(args):
             counts[f"excluded: search window not {low}-{high}{' consecutive' if args.consecutive else ''} sectors within one season"] += 1
             excluded_rows.append({"tic_id": t, "reason": f"{len(chosen)} sectors within one season, span {chosen[-1] - chosen[0] + 1}",
                                   "n_sectors": len(sectors)})
+            continue
+        if args.max_total and len(sectors) > args.max_total:
+            counts[f"excluded: more than {args.max_total} sectors in total"] += 1
+            excluded_rows.append({"tic_id": t, "reason": f"{len(sectors)} sectors in total", "n_sectors": len(sectors)})
             continue
         starts = sorted(datetime.fromisoformat(v[2]) for v in sectors.values())
         baseline = (starts[-1] - starts[0]).days + SECTOR_DAYS
@@ -415,8 +419,7 @@ def main():
     select.add_argument("--quota", type=int, nargs=2, default=tuple(QUOTA.values()), metavar=("A", "B"),
                         help="Stars per priority (A: Tmag 8-10, B: 10-12)")
     select.add_argument("--name", help="List name, the folder under targets/<day>/ (default: from --sectors)")
-    select.add_argument("--exclude", type=Path, nargs="*", default=[], metavar="TARGETS_CSV",
-                        help="Earlier target lists whose stars are left out")
+    select.add_argument("--max-total", type=int, help="Leave out stars observed in more sectors than this, in total")
     select.set_defaults(run=command_select)
     args = parser.parse_args()
     global SOURCE
