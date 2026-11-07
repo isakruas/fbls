@@ -25,7 +25,8 @@ candidates.csv columns
   tic                 TESS Input Catalog number
   signal              signal index within the star
   search              periodic (folded search) or single (unfolded single-event scan)
-  tier                strong, candidate, inconclusive, rejected or duplicate, with the reason
+  tier                strong, candidate, unconfirmed (fewer than 3 transits), inconclusive, rejected or
+                      duplicate, with the reason
   known, known_source, known_disposition
                       match to TOI, CTOI, confirmed planets, eclipsing binaries or TCEs (empty: new)
   period_days, epoch_bjd, duration_hours, depth_ppm, radius_earth
