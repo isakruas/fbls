@@ -1,0 +1,34 @@
+# A push to main that changes paper/deposit/ publishes the newest day folder: its files become the
+# whole content of the orphan branch `catalog` (so the release's source archive, which Zenodo
+# archives, holds the catalog and nothing else), tagged v<day>, with the files as release assets.
+name: Catalog release
+on:
+  push:
+    branches: [main]
+    paths: ["paper/deposit/**", ".github/workflows/catalog.yml"]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Catalog branch, tag and release
+        run: |
+          day=$(ls paper/deposit | sort | tail -1)
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git worktree add --detach catalog
+          cd catalog
+          git checkout --orphan catalog
+          git rm -rfq . && git clean -fdq
+          cp ../paper/deposit/$day/* .
+          git add -A && git commit -qm "Catalog $day"
+          git push -f origin catalog
+          git tag -f "v$day" && git push -f origin "v$day"
+          gh release view "v$day" >/dev/null 2>&1 && gh release delete "v$day" --yes
+          gh release create "v$day" ./* --target catalog \
+            --title "FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry" \
+            --notes-file ReadMe.txt
