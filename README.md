@@ -1,48 +1,65 @@
-# FBLS
+# fbls
 
-FBLS, a multi-pass box least squares transit search with duration families
-and a fused GPU kernel, for TESS light curves; with the survey layer that
-vets candidates and writes ExoFOP CTOI rows. Linux, NVIDIA GPU, Python 3.10+.
+FBLS (Family Box Least Squares): transit search for TESS light curves in which
+the box least squares statistic is evaluated per family of transit durations, with the template
+scans and the model comparison as CUDA kernels compiled by
+[cuda-oxide](https://github.com/NVIDIA/cuda-rust). `docs/SPEC.md` describes
+the pipeline and the numerical conventions.
 
-## Install
+## Requirements
 
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install 'torch==2.7.1' --index-url https://download.pytorch.org/whl/cu128
-.venv/bin/python -m pip install -e '.[targets,survey,dev]'
+- Linux, NVIDIA GPU (Ampere or newer), driver 580+.
+- CUDA Toolkit 13.x on `PATH` (`nvcc`, `cuda.h`, libNVVM, nvJitLink).
+- Clang/LLVM 21 with libclang; set `LIBCLANG_PATH` when installed outside the system paths.
+- Rust 1.99.1 (rustup installs it from `rust-toolchain.toml`).
+- `cargo-oxide`: `cargo +1.99.1 install --git https://github.com/NVIDIA/cuda-rust.git cargo-oxide`
+
+## Build and run
+
+```
+cargo oxide doctor
+cargo oxide build
+target/release/fbls search --input star/sector-1.npz star/sector-2.npz --pmax 20 --output result.json
+target/release/fbls search --input curve.npz --prepared --save-table table.csv
+target/release/fbls validate --stars reference/stars.json --data data   # recovery of catalog ephemerides
+target/release/fbls batch --list stars.txt --output-dir out --workers 2 --devices 0,1
+target/release/fbls fetch --tic 301055848 --root data                 # SPOC light curves from MAST
+target/release/fbls survey search --targets data/targets/<day>/<list>/targets_download.csv --root data
+target/release/fbls survey vet --targets ... ; survey pixel --targets ... ; survey publish --targets ... --author "Name"
+target/release/fbls survey refine --targets ...
+cargo test --release            # host-side unit tests
 ```
 
-## Use
+`FBLS_PROFILE=1` adds per-kernel timings to the band statistics.
 
-```bash
-fbls --input curve.npz --pmax 100 --output detections.json      # one star, JSON schema 3
-fbls-survey search --targets targets/<day>/<list>/targets_download.csv --workers 4     # GPU search, N processes -> data/survey/search/
-fbls-survey vet --targets ...                                   # cross-match, duplicates, vetting -> data/survey/vetting/
-fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... # only for signals that passed the stage before
-fbls-survey refine --targets ...                                # every sector of each CTOI star -> public/<day>/refine/<tic>/
-fbls-survey publish --targets ...                               # public/candidates.csv, ctoi.csv; public/<day>/figures/<tic>_<signal>/ one file per panel
-python targets/select_targets.py fetch-snapshots                        # catalog and MAST snapshots
-python targets/select_targets.py fetch-tic && python targets/select_targets.py select
-python targets/download.py --manifest targets/<day>/<list>/download_manifest.csv --workers 4
+Batch mode reads one star per line (`name pmax file1 file2 ...`, `pmax` may be
+`-` for the default) and runs `--workers` threads per listed device, each with
+its own CUDA stream, writing `out/<name>.json` (or `out/<name>.error`). On a
+cluster, run one process per node with all its GPUs in `--devices`.
+
+## Input and output
+
+Inputs are SPOC light-curve FITS files or NPZ files with columns `time_bjd`,
+`flux`, optional `flux_err`, optional `sector` (scalar or vector). Output: JSON schema 3 with `candidates` (model-preferred
+first), `signal_candidates` (by amplitude), `single_events`, `config` and
+`statistics`.
+
+## Data layout
+
+```
+data/curves/<tic>/sector-N.fits|npz   light curves, with sector-N.json provenance sidecars
+data/mast/lc, data/mast/tp            SPOC products as downloaded
+data/catalogs/                        TOI table, known signals (CTOI, planets, EB, TCE), ExoFOP TOI CSV
+data/targets/<day>/<list>/            target lists and download manifests
+data/survey/{search,vetting,pixel}/   stage outputs per star
+public/                               candidate and CTOI tables, per-day folders with panel data
 ```
 
-Input NPZ columns: `time_bjd`, `flux`, optional `flux_err`, `sector`, `centroid`.
-Output: `candidates` (model-preferred first), `signal_candidates` (by SNR),
-`single_events`, and the per-period table (`--save-table`).
+## Reference data
 
-## Method in brief
-
-The per-period statistic is the box least squares one: for each period, phase and
-duration a box (or trapezoid) is fitted by weighted least squares and ranked by the
-signal-to-noise of its depth. FBLS differs from a classical BLS in what surrounds
-that statistic. Each transit duration gets its own detrending window and period grid
-(duration families). A fused Triton kernel scans every period, phase and shape
-with the box first and trapezoids only where the box is significant; ranking in
-float32, exact winner in float64. Peaks are accepted by isolated rescoring
-without the observations of accepted peaks, two sampled events and a veto on
-single dominant events; accepted peaks are masked and the search repeats up to
-three times. A planet/binary/noise evidence ranks the strongest peaks, and an
-unfolded scan reports single events. Full description: `docs/method.md`;
-flowchart: `docs/pipeline.mmd`.
-
-Author: Isak Paulo de Andrade Ruas, NROLABS.
+`reference/stars.json` lists confirmed and known TOI hosts sampled across
+periods with their ExoFOP ephemerides; their light curves are the ones under
+`data/curves/<tic>/`. `fbls validate` searches every star and reports whether
+the catalog period (or an alias), depth and duration are recovered.
+`tools/benchmark.py` runs the same stars through astropy BoxLeastSquares,
+transitleastsquares and cuvarbase for sensitivity and run-time comparison.

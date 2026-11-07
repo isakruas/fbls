@@ -1,0 +1,24 @@
+[package]
+name = "fbls"
+version = "0.1.0"
+edition = "2024"
+description = "FBLS (Family Box Least Squares) transit search for TESS light curves with CUDA kernels compiled by cuda-oxide"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+cuda-device = { git = "https://github.com/NVIDIA/cuda-rust.git", rev = "367bc0f8e6" }
+cuda-host = { git = "https://github.com/NVIDIA/cuda-rust.git", rev = "367bc0f8e6" }
+cuda-core = { git = "https://github.com/NVIDIA/cuda-rust.git", rev = "367bc0f8e6" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+ureq = { version = "2", features = ["json"] }
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3
+debug = 1
+lto = "fat"
+codegen-units = 1

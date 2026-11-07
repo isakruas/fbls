@@ -1,0 +1,40 @@
+# Build the host binary and the device code (PTX) and run the host tests.
+# No GPU is needed: cargo oxide build compiles the kernels ahead of time and
+# the tests cover the host-side arithmetic.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      CUDA_TOOLKIT_PATH: /usr/local/cuda-13.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: CUDA Toolkit 13.2
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update -q
+          sudo apt-get install -y -q cuda-toolkit-13-2
+          echo "/usr/local/cuda-13.2/bin" >> "$GITHUB_PATH"
+      - name: LLVM and Clang 21
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 21
+          sudo apt-get install -y -q llvm-21 clang-21 libclang-21-dev libclang-common-21-dev
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100
+      - name: Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal -c rust-src -c rustc-dev -c llvm-tools -c clippy -c rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo-oxide
+        run: cargo +1.99.1 install --git https://github.com/NVIDIA/cuda-rust.git --rev 367bc0f8e6 cargo-oxide --locked
+      - name: Environment check
+        run: cargo oxide doctor || true
+      - name: Build (host and device code)
+        run: CUDA_OXIDE_TARGET=sm_80 cargo oxide build
+      - name: Host tests
+        run: cargo test --release
+      - name: Format and lints
+        run: cargo fmt --check && cargo clippy --release -- -D warnings

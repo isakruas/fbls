@@ -1,8 +1,9 @@
 # A push to main publishes the newest day of public/ as a catalog release, unless that day is
-# already released (a manual run republishes it): paper/build.py assembles the deposit from
-# public/, its files become the whole content of the orphan branch `catalog` (so the release's
-# source archive holds the catalog and nothing else), tagged v<day>, with the files as release
-# assets; then the same files become a new version of the Zenodo record (paper/zenodo_upload.py).
+# already released (a manual run republishes it): `fbls catalog deposit` assembles the deposit
+# from public/, its files become the whole content of the orphan branch `catalog` (so the
+# release's source archive holds the catalog and nothing else), tagged v<day>, with the files as
+# release assets; then the same files become a new version of the Zenodo record
+# (`fbls catalog zenodo`).
 name: Catalog release
 on:
   push:
@@ -10,13 +11,33 @@ on:
   workflow_dispatch:
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      CUDA_TOOLKIT_PATH: /usr/local/cuda-13.2
     steps:
       - uses: actions/checkout@v4
+      - name: CUDA Toolkit 13.2
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update -q
+          sudo apt-get install -y -q cuda-toolkit-13-2
+          echo "/usr/local/cuda-13.2/bin" >> "$GITHUB_PATH"
+      - name: LLVM and Clang 21
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 21
+          sudo apt-get install -y -q llvm-21 clang-21 libclang-21-dev libclang-common-21-dev
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100
+      - name: Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal -c rust-src -c rustc-dev -c llvm-tools
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo-oxide
+        run: cargo +1.99.1 install --git https://github.com/NVIDIA/cuda-rust.git --rev 367bc0f8e6 cargo-oxide --locked
+      - name: Build
+        run: CUDA_OXIDE_TARGET=sm_80 cargo oxide build
       - name: Deposit of the newest published day
         id: deposit
         run: |
@@ -24,7 +45,7 @@ jobs:
           if [ "${{ github.event_name }}" = push ] && gh release view "v$day" >/dev/null 2>&1; then
             echo "v$day is already released; run the workflow by hand to republish it"; exit 0
           fi
-          FBLS_DAY=$day python paper/build.py
+          target/release/fbls catalog deposit --public public --day "$day" --out paper/deposit
           echo "day=$day" >> "$GITHUB_OUTPUT"
       - name: Catalog branch, tag and release
         if: steps.deposit.outputs.day
@@ -42,7 +63,7 @@ jobs:
           git tag -f "v$day" && git push -f origin "v$day"
           gh release view "v$day" >/dev/null 2>&1 && gh release delete "v$day" --yes
           gh release create "v$day" ./* --target catalog \
-            --title "FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry" \
+            --title "FBLS: Catalog of Exoplanet Transit Candidates Identified in TESS Photometry" \
             --notes-file ReadMe.txt
       - name: Zenodo version with the same files at the root of the record
         if: steps.deposit.outputs.day
@@ -51,4 +72,4 @@ jobs:
           ZENODO_RECORD: ${{ vars.ZENODO_RECORD }}
         run: |
           [ -n "$ZENODO_TOKEN" ] || { echo "::warning::ZENODO_TOKEN is not set; no Zenodo version published"; exit 0; }
-          python paper/zenodo_upload.py "paper/deposit/${{ steps.deposit.outputs.day }}"
+          target/release/fbls catalog zenodo --deposit "paper/deposit/${{ steps.deposit.outputs.day }}"

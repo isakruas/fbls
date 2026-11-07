@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this catalog or software, please cite it as below."
 type: dataset
-title: "FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry"
+title: "FBLS: Catalog of Exoplanet Transit Candidates Identified in TESS Photometry"
 authors:
   - family-names: "Ruas"
     given-names: "Isak Paulo de Andrade"
@@ -18,8 +18,13 @@ keywords:
   - planet candidates
   - CTOI
 abstract: >-
-  Transit candidates from a blind GPU search (FBLS) of TESS 2-minute SPOC light curves,
-  with automated vetting, difference-image pixel tests and TRICERATOPS false positive
-  probabilities. Each version is the cumulative catalog to its date: ctoi.csv (ExoFOP CTOI
-  rows), candidates.csv (every vetted signal), figures.zip (one folder per CTOI signal) and
-  ReadMe.txt (column definitions). The search and vetting code is at the repository.
+  Transit candidates from a blind search of TESS 2-minute SPOC light curves with FBLS, a
+  GPU detector (FBLS, Family Box Least Squares): per-duration detrending
+  families, correlated-noise scaling of the amplitude statistic, trapezoidal shapes, a
+  multi-pass search with masking, a single-event scan and a joint planet/binary/noise
+  evidence at every peak. Every signal went through automated vetting (odd/even, secondary
+  eclipse, shape, duration against stellar density, centroid, crowding and the Robovetter
+  flux tests) and a difference-image pixel test. Each version is the cumulative catalog to
+  its date: ctoi.csv (ExoFOP CTOI rows), candidates.csv (every vetted signal), figures.zip
+  (one folder of panel data per CTOI signal) and ReadMe.txt (column definitions). The search
+  and vetting code is at the repository.

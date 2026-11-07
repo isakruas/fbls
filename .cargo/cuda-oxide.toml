@@ -1,0 +1,3 @@
+[env]
+# Device slice accesses were verified with compute-sanitizer memcheck; bounds checks are elided in kernels.
+CUDA_OXIDE_UNCHECKED_INDEXING = "1"

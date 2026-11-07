@@ -1,26 +1,17 @@
-__pycache__/
-*.pyc
-build/
-dist/
-*.egg-info/
-data/*
-!data/evaluation/
-!data/survey/
-data/survey/*
-!data/survey/search/
-!data/survey/vetting/
-!data/survey/pixel/
-!data/survey/fpp/
-data/survey/search/*.npz
-!data/snapshots/
-data/snapshots/*
-!data/snapshots/catalogs/
-data/snapshots/catalogs/*
-!data/snapshots/catalogs/snapshot.json
-targets/tic_cache.jsonl
-.venv/
-targets/*.log
-public/**/*.npz
-*.log
-run.sh
-paper/deposit/
+# build outputs
+/target/
+/.oxide-artifacts/
+**/*.bc
+**/*.ptx
+**/*.ll
+**/*.oxart
+# light curves and survey working files (regenerate with tools/inventory.py and fbls fetch)
+/data/curves/
+/data/survey/
+/data/pixels/
+# search and release outputs
+/results/
+/paper/deposit/
+# catalog snapshots and target lists are inputs fetched separately (see data/README.md)
+/data/catalogs/
+/data/targets/
