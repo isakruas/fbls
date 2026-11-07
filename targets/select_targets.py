@@ -18,6 +18,8 @@ Usage:
   select_targets.py fetch-tic   [--min-sectors 2]        # cache TIC rows for the candidate pool
   select_targets.py select      [--pilot 10]              # write targets_download.csv and manifests
   select_targets.py select --sectors 2 3 --consecutive    # a second list: 2-3 consecutive sectors, files suffixed _2-3
+  select_targets.py select --sectors 2 3 --consecutive --quota 1000 1000 --tag _2-3_b \
+      --exclude targets/targets_download.csv targets/targets_download_2-3.csv   # 2,000 more, none repeated
 """
 import argparse
 import csv
@@ -248,6 +250,9 @@ def command_select(args):
     started = datetime.now(timezone.utc).isoformat()
     table = products()
     by_catalog = exclusions()
+    for path in args.exclude:
+        with path.open() as f:
+            by_catalog[f"earlier list {path.name}"] = {int(r["tic_id"]) for r in csv.DictReader(f)}
     tic = {}
     with TIC_CACHE.open() as f:
         for line in f:
@@ -314,16 +319,18 @@ def command_select(args):
     candidates.sort(key=lambda c: c["tic_id"])
     random.Random(args.seed).shuffle(candidates)
     selected, taken = [], Counter()
-    for priority in QUOTA:
+    quota = dict(zip(QUOTA, args.quota))
+    for priority in quota:
         group = [c for c in candidates if c["priority"] == priority]
-        selected.extend(group[:QUOTA[priority]])
-        taken[priority] = min(len(group), QUOTA[priority])
+        selected.extend(group[:quota[priority]])
+        taken[priority] = min(len(group), quota[priority])
         counts[f"available priority {priority}"] = len(group)
     pilot = selected[:args.pilot]
     for c in pilot:
         c["pilot"] = True
     OUT.mkdir(parents=True, exist_ok=True)
-    tag = "" if tuple(args.sectors) == (SEARCH_SECTORS, SEARCH_SECTORS) else f"_{args.sectors[0]}-{args.sectors[1]}"
+    tag = args.tag if args.tag is not None else \
+        "" if tuple(args.sectors) == (SEARCH_SECTORS, SEARCH_SECTORS) else f"_{args.sectors[0]}-{args.sectors[1]}"
     fields = list(selected[0].keys()) if selected else []
     if "pilot" not in fields:
         fields.append("pilot")
@@ -369,7 +376,7 @@ def command_select(args):
                             "priority": {"A": "8 <= Tmag < 10", "B": "10 <= Tmag <= 12"},
                             "ordering": f"seeded shuffle within priority (seed {args.seed})",
                             "search_window": f"the largest group of sectors with gaps of at most {MAX_GAP_SECTORS} sectors, reduced to the {SEARCH_SECTORS} spanning the shortest time (most recent on ties)",
-                            "quota": QUOTA},
+                            "quota": quota},
     }
     (OUT / f"catalog_sources{tag}.json").write_text(json.dumps(sources, indent=2) + "\n")
     lines = [f"# Target selection report ({started})", "",
@@ -404,6 +411,11 @@ def main():
     select.add_argument("--sectors", type=int, nargs=2, default=(SEARCH_SECTORS, SEARCH_SECTORS), metavar=("MIN", "MAX"),
                         help="Sectors required in the search window; other values write suffixed files")
     select.add_argument("--consecutive", action="store_true", help="Require the window sectors to be consecutive")
+    select.add_argument("--quota", type=int, nargs=2, default=tuple(QUOTA.values()), metavar=("A", "B"),
+                        help="Stars per priority (A: Tmag 8-10, B: 10-12)")
+    select.add_argument("--tag", help="Suffix of the output files (default: from --sectors)")
+    select.add_argument("--exclude", type=Path, nargs="*", default=[], metavar="TARGETS_CSV",
+                        help="Earlier target lists whose stars are left out")
     select.set_defaults(run=command_select)
     args = parser.parse_args()
     global SOURCE
