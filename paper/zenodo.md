@@ -1,6 +1,6 @@
 # Zenodo deposit
 
-One Zenodo record for the catalog (concept DOI 10.5281/zenodo.24026050), one version per day,
+One Zenodo record for the catalog (concept DOI 10.5281/zenodo.24026413), one version per day,
 with the five deposit files at the root of the record. Zenodo's GitHub integration stays off for
 this repository: it would add a duplicate version holding only a source zip.
 

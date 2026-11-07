@@ -1,7 +1,7 @@
 FBLS: Preliminary Catalog of Exoplanet Transit Candidates Identified in TESS Photometry
 Isak Paulo de Andrade Ruas, NROLABS
 Version: 2026-11-06
-DOI (all versions): 10.5281/zenodo.24026050
+DOI (all versions): 10.5281/zenodo.24026413
 
 Candidates from a blind transit search (FBLS, https://github.com/isakruas/fbls) of
 TESS 2-minute SPOC light curves. Every signal went through automated vetting, a

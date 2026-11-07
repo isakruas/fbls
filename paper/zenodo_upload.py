@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 
 API = "https://zenodo.org/api"
-CONCEPT = "24026050"
+CONCEPT = "24026413"
 
 
 def call(method, url, data=None, content_type="application/json"):
@@ -32,9 +32,13 @@ def main(folder):
     if same:
         print(f"version {metadata['version']} is already published as {same[0]['doi']}; nothing to do")
         return
-    latest = call("GET", f"{API}/records/{concept}")["id"]
-    draft = call("POST", f"{API}/deposit/depositions/{latest}/actions/newversion")
-    draft = call("GET", draft["links"]["latest_draft"])
+    if published:
+        latest = max(published, key=lambda r: r["created"])["id"]
+        draft = call("POST", f"{API}/deposit/depositions/{latest}/actions/newversion")
+        draft = call("GET", draft["links"]["latest_draft"])
+    else:
+        draft = call("POST", f"{API}/deposit/depositions", {})
+        print(f"new record: concept {draft['conceptrecid']} (set ZENODO_RECORD and CONCEPT to it)")
     for old in draft.get("files", []):
         call("DELETE", f"{API}/deposit/depositions/{draft['id']}/files/{old['id']}")
     for path in sorted(p for p in folder.iterdir() if p.name != ".zenodo.json"):
