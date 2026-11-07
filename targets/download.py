@@ -1,4 +1,4 @@
-"""Download the SPOC light curves listed in download_manifest.csv and convert them to NPZ.
+"""Download the SPOC light curves of a manifest (targets/<day>/<list>/download_manifest.csv) and convert them to NPZ.
 
 Each product is fetched from the public AWS mirror first and from the MAST URL of
 the manifest as fallback, in parallel byte ranges with resume, a configurable number
@@ -9,8 +9,7 @@ mask and PDCSAP flux), with a JSON sidecar recording provenance and the SHA-256
 of the FITS file.
 
 Usage:
-  download.py --pilot            # the pilot stars flagged in the manifest
-  download.py                    # the complete manifest
+  download.py --manifest targets/<day>/<list>/download_manifest.csv [--pilot]   # a list (or its pilot stars)
   download.py --tic 3756996      # every sector of one star, from the local MAST sector manifests
 """
 import argparse
@@ -25,7 +24,6 @@ from pathlib import Path
 from fbls.survey.fetch import download
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = Path(__file__).resolve().parent / "download_manifest.csv"
 CURVE_VERSION = 2
 
 
@@ -141,7 +139,7 @@ def rows_for(tics):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    parser.add_argument("--manifest", type=Path, help="targets/<day>/<list>/download_manifest.csv")
     parser.add_argument("--tic", type=int, nargs="*", help="Every sector of these stars instead of the manifest")
     parser.add_argument("--root", type=Path, default=ROOT / "data")
     parser.add_argument("--workers", type=int, default=4)
@@ -154,6 +152,8 @@ def main():
         return
     if args.tic:
         rows = rows_for(args.tic)
+    elif args.manifest is None:
+        parser.error("--manifest or --tic is required")
     else:
         with args.manifest.open() as f:
             rows = [r for r in csv.DictReader(f) if not args.pilot or r.get("pilot") == "True"]

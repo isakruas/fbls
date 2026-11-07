@@ -16,8 +16,8 @@ repeated whenever a rule changes. A stage never overwrites an
 existing output. Catalog information is used only after the search.
 
 Usage:
-  fbls-survey search --targets targets/targets_download.csv --workers 4
-  fbls-survey vet --targets targets/targets_download.csv
+  fbls-survey search --targets targets/<day>/<list>/targets_download.csv --workers 4
+  fbls-survey vet --targets targets/<day>/<list>/targets_download.csv
   fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... ; fbls-survey refine --targets ... ; fbls-survey publish --targets ...
 """
 import argparse

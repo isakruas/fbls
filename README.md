@@ -16,14 +16,14 @@ python3 -m venv .venv
 
 ```bash
 fbls --input curve.npz --pmax 100 --output detections.json      # one star, JSON schema 3
-fbls-survey search --targets targets/targets_download.csv --workers 4     # GPU search, N processes -> data/survey/search/
+fbls-survey search --targets targets/<day>/<list>/targets_download.csv --workers 4     # GPU search, N processes -> data/survey/search/
 fbls-survey vet --targets ...                                   # cross-match, duplicates, vetting -> data/survey/vetting/
 fbls-survey pixel --targets ... ; fbls-survey fpp --targets ... # only for signals that passed the stage before
 fbls-survey refine --targets ...                                # every sector of each CTOI star -> public/<day>/refine/<tic>/
 fbls-survey publish --targets ...                               # public/candidates.csv, ctoi.csv; public/<day>/figures/<tic>_<signal>/ one file per panel
 python targets/select_targets.py fetch-snapshots                        # catalog and MAST snapshots
 python targets/select_targets.py fetch-tic && python targets/select_targets.py select
-python targets/download.py --pilot && python targets/download.py --workers 4
+python targets/download.py --manifest targets/<day>/<list>/download_manifest.csv --workers 4
 ```
 
 Input NPZ columns: `time_bjd`, `flux`, optional `flux_err`, `sector`, `centroid`.

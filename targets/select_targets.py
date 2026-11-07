@@ -16,10 +16,10 @@ parameters are used only to exclude stars, never to rank them.
 Usage:
   select_targets.py fetch-snapshots                       # MAST sector manifests and catalog snapshots
   select_targets.py fetch-tic   [--min-sectors 2]        # cache TIC rows for the candidate pool
-  select_targets.py select      [--pilot 10]              # write targets_download.csv and manifests
-  select_targets.py select --sectors 2 3 --consecutive    # a second list: 2-3 consecutive sectors, files suffixed _2-3
-  select_targets.py select --sectors 2 3 --consecutive --quota 1000 1000 --tag _2-3_b \
-      --exclude targets/targets_download.csv targets/targets_download_2-3.csv   # 2,000 more, none repeated
+  select_targets.py select      [--pilot 10]              # targets/<day>/8-sectors/: targets_download.csv, manifests, report
+  select_targets.py select --sectors 2 3 --consecutive    # targets/<day>/2-3-sectors/: 2-3 consecutive sectors
+  select_targets.py select --sectors 2 3 --consecutive --quota 1000 1000 \
+      --exclude targets/*/*/targets_download.csv            # 2,000 more, none repeated from earlier lists
 """
 import argparse
 import csv
@@ -328,18 +328,19 @@ def command_select(args):
     pilot = selected[:args.pilot]
     for c in pilot:
         c["pilot"] = True
-    OUT.mkdir(parents=True, exist_ok=True)
-    tag = args.tag if args.tag is not None else \
-        "" if tuple(args.sectors) == (SEARCH_SECTORS, SEARCH_SECTORS) else f"_{args.sectors[0]}-{args.sectors[1]}"
+    name = args.name or (f"{SEARCH_SECTORS}-sectors" if tuple(args.sectors) == (SEARCH_SECTORS, SEARCH_SECTORS)
+                         else f"{args.sectors[0]}-{args.sectors[1]}-sectors")
+    out = OUT / datetime.now(timezone.utc).strftime("%Y-%m-%d") / name
+    out.mkdir(parents=True, exist_ok=True)
     fields = list(selected[0].keys()) if selected else []
     if "pilot" not in fields:
         fields.append("pilot")
-    with (OUT / f"targets_download{tag}.csv").open("w", newline="") as f:
+    with (out / "targets_download.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for c in selected:
             w.writerow({**c, "pilot": c.get("pilot", False)})
-    with (OUT / f"download_manifest{tag}.csv").open("w", newline="") as f:
+    with (out / "download_manifest.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["tic_id", "sector", "product_type", "product_source", "cadence_seconds", "mast_obsid",
                     "mast_product_uri", "download_url", "mirror_url", "filename", "file_size_bytes", "checksum", "pilot"])
@@ -352,7 +353,7 @@ def command_select(args):
                 w.writerow([c["tic_id"], sector, "light curve", "SPOC", 120, None,
                             url.split("uri=")[-1] if "uri=" in url else None, url, mirror, filename, None, None,
                             c.get("pilot", False)])
-    with (OUT / f"excluded_targets{tag}.csv").open("w", newline="") as f:
+    with (out / "excluded_targets.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["tic_id", "reason", "n_sectors"])
         w.writeheader()
         w.writerows(excluded_rows)
@@ -378,7 +379,7 @@ def command_select(args):
                             "search_window": f"the largest group of sectors with gaps of at most {MAX_GAP_SECTORS} sectors, reduced to the {SEARCH_SECTORS} spanning the shortest time (most recent on ties)",
                             "quota": quota},
     }
-    (OUT / f"catalog_sources{tag}.json").write_text(json.dumps(sources, indent=2) + "\n")
+    (out / "catalog_sources.json").write_text(json.dumps(sources, indent=2) + "\n")
     lines = [f"# Target selection report ({started})", "",
              f"Stars with SPOC 120 s light curves in {sources['manifests']['sectors']} sector manifests: {len(table)}", "",
              "| Step | Stars |", "|---|---:|"]
@@ -389,7 +390,7 @@ def command_select(args):
               f"(largest group with gaps of at most {MAX_GAP_SECTORS} sectors, at most {SEARCH_SECTORS} sectors), "
               f"~{sum(c['estimated_download_mb'] for c in selected) / 1024:.1f} GB; pilot batch: {len(pilot)} stars.", "",
               "Limitations:", *[f"- {x}" for x in sources["limitations"]]]
-    (OUT / f"selection_report{tag}.md").write_text("\n".join(lines) + "\n")
+    (out / "selection_report.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 
 
@@ -413,7 +414,7 @@ def main():
     select.add_argument("--consecutive", action="store_true", help="Require the window sectors to be consecutive")
     select.add_argument("--quota", type=int, nargs=2, default=tuple(QUOTA.values()), metavar=("A", "B"),
                         help="Stars per priority (A: Tmag 8-10, B: 10-12)")
-    select.add_argument("--tag", help="Suffix of the output files (default: from --sectors)")
+    select.add_argument("--name", help="List name, the folder under targets/<day>/ (default: from --sectors)")
     select.add_argument("--exclude", type=Path, nargs="*", default=[], metavar="TARGETS_CSV",
                         help="Earlier target lists whose stars are left out")
     select.set_defaults(run=command_select)

@@ -8,7 +8,7 @@ originals in `mast/lc/`). Nothing here depends on files outside this repository:
 ```bash
 python targets/select_targets.py fetch-snapshots     # MAST sector manifests; TOI, ExoFOP TOI, CTOI, planets, EB and TCE snapshots
 python targets/select_targets.py fetch-tic           # TIC rows (Tmag, Teff, radius, contamination, ...) for the candidate pool, cached
-python targets/select_targets.py select --pilot 10   # targets_download.csv, download_manifest.csv, excluded_targets.csv, report
+python targets/select_targets.py select --pilot 10   # targets/<day>/8-sectors/: targets_download.csv, download_manifest.csv, excluded_targets.csv, report
 python targets/download.py --pilot                   # pilot batch, then: python targets/download.py --workers 4
 python targets/control_sample.py --source <labeled cache> --per-bin 50 --copy          # control group (confirmed hosts + FP-only hosts)
 python targets/control_sample.py --source <labeled cache> --tics dev.json --label development --copy

@@ -15,8 +15,8 @@ Stars with SPOC 120 s light curves in 107 sector manifests: 592556
 | excluded: TOI | 6698 |
 | excluded: Tmag outside 8-12 | 93427 |
 | excluded: contamination ratio > 0.2 | 11164 |
-| excluded: earlier list targets_download.csv | 1000 |
-| excluded: earlier list targets_download_2-3.csv | 1000 |
+| excluded: earlier list 2026-11-06/8-sectors | 1000 |
+| excluded: earlier list 2026-11-06/2-3-sectors | 1000 |
 | excluded: fewer than 2 sectors | 278678 |
 | excluded: no TIC row | 240 |
 | excluded: planet | 2816 |
