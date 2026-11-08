@@ -1,0 +1,2427 @@
+{
+  "baseline_days": 2904.8351186807267,
+  "config": {
+    "bin_minutes": 10.0,
+    "binary_depth_scale": 0.1,
+    "binary_prior": 0.01,
+    "clip_sigma": 4.0,
+    "correlated_noise": true,
+    "diluted_binary_depth_scale": 0.01,
+    "durations_hours": [
+      0.5,
+      0.625,
+      0.78125,
+      0.976562,
+      1.220703,
+      1.525879,
+      1.907349,
+      2.384186,
+      2.980232,
+      3.72529,
+      4.656613,
+      5.820766,
+      7.275958,
+      9.094947,
+      11.368684,
+      14.210855,
+      17.763568,
+      22.20446,
+      27.755576
+    ],
+    "edge_trim_windows": 0.5,
+    "evidence_candidates": 32,
+    "evidence_rtol": 1e-12,
+    "ingress_fractions": [
+      0.0,
+      0.2,
+      0.45
+    ],
+    "max_candidates": 20,
+    "max_fold_mib": 1024.0,
+    "min_events": 2,
+    "model_comparison": true,
+    "passes": 3,
+    "period_batch": 4096,
+    "period_max": 100.0,
+    "period_min": 0.3,
+    "period_oversample": 3.0,
+    "phase_oversample": 4,
+    "planet_depth_scale": 0.01,
+    "planet_log_odds_min": 0.0,
+    "planet_prior": 0.01,
+    "planet_radius_scale_rj": 1.0,
+    "prescan_factor": 2,
+    "prescan_fraction": 0.7,
+    "shape_gate_fraction": 0.6,
+    "shape_layers": 4,
+    "single_events": true,
+    "stellar_radius_solar": null,
+    "target_flux_fraction": 1.0,
+    "threshold": 7.1,
+    "window_days": 0.4,
+    "window_factor": 3.0,
+    "window_max_days": 3.5
+  },
+  "peaks": [
+    {
+      "binary_diagnostics_complete": true,
+      "binary_odd_even_ratio": 1.0,
+      "binary_period_days": 10.191886251296532,
+      "binary_secondary_phase": 0.5,
+      "binary_secondary_ratio": 0.0,
+      "depth": 0.0005465275615071484,
+      "depth_ppm": 546.5275615071483,
+      "duration_hours": 2.387687017657322,
+      "epoch_bjd": 2458389.2810790064,
+      "events": 25,
+      "evidence_duration_hours": 2.371173536015928,
+      "evidence_epoch_bjd": 2458389.2826412446,
+      "family": 0,
+      "ingress_fraction": 0.0,
+      "log_bf_binary_noise": 142.01072711308547,
+      "log_bf_planet_noise": 145.21704656286877,
+      "model_preferred": true,
+      "pass": 1,
+      "period_days": 5.095943125648266,
+      "planet_log_odds": 3.206319449783308,
+      "snr": 17.749539291055413,
+      "snr_folded": 17.749539291055413,
+      "snr_without_strongest_event": 16.987867092915085
+    },
+    {
+      "binary_diagnostics_complete": true,
+      "binary_odd_even_ratio": 1.0,
+      "binary_period_days": 12.491036715658478,
+      "binary_secondary_phase": 0.5,
+      "binary_secondary_ratio": 0.1,
+      "depth": 0.0008296437608878558,
+      "depth_ppm": 829.6437608878558,
+      "duration_hours": 3.00841893233109,
+      "epoch_bjd": 2458393.9348584027,
+      "events": 11,
+      "evidence_duration_hours": 2.997848811758035,
+      "evidence_epoch_bjd": 2458393.9357604203,
+      "family": 0,
+      "ingress_fraction": 0.0,
+      "log_bf_binary_noise": 111.71451902645296,
+      "log_bf_planet_noise": 113.9202555382274,
+      "model_preferred": true,
+      "pass": 1,
+      "period_days": 12.491036715658478,
+      "planet_log_odds": 2.2057365117744325,
+      "snr": 16.5891193658241,
+      "snr_folded": 16.6680217810782,
+      "snr_without_strongest_event": 14.699689136130734
+    },
+    {
+      "binary_diagnostics_complete": true,
+      "binary_odd_even_ratio": 0.75,
+      "binary_period_days": 4.001078683360636,
+      "binary_secondary_phase": 0.5,
+      "binary_secondary_ratio": 0.0,
+      "depth": 0.00025084231527139307,
+      "depth_ppm": 250.84231527139306,
+      "duration_hours": 1.2497946429586368,
+      "epoch_bjd": 2458386.8474857556,
+      "events": 70,
+      "evidence_duration_hours": 1.2374470154723616,
+      "evidence_epoch_bjd": 2458386.8456962444,
+      "family": 0,
+      "ingress_fraction": 0.0,
+      "log_bf_binary_noise": 29.727596387512577,
+      "log_bf_planet_noise": 31.342304754497334,
+      "model_preferred": true,
+      "pass": 1,
+      "period_days": 2.000539341680318,
+      "planet_log_odds": 1.6147083669727174,
+      "snr": 8.442802544280164,
+      "snr_folded": 9.455893376578041,
+      "snr_without_strongest_event": 7.963646872275053
+    }
+  ],
+  "processed_utc": "2026-11-08T20:12:27Z",
+  "sectors": [
+    3,
+    30,
+    97,
+    105,
+    106,
+    107
+  ],
+  "single_events": [],
+  "statistics": {
+    "baseline_days": 2904.4246914158575,
+    "device": "cuda:0",
+    "evidence": {
+      "seconds_search": 0.044142579
+    },
+    "observations": 19848,
+    "passes": [
+      {
+        "accepted": 3,
+        "families": [
+          {
+            "bands": [
+              {
+                "batches": 72,
+                "exact_tile_retries": 0,
+                "periods": 289901,
+                "phase_bins": 116,
+                "prescan_survivors": 756,
+                "seconds": 1.838481788,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 304235172
+              },
+              {
+                "batches": 72,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 231,
+                "prescan_survivors": 2266,
+                "seconds": 1.796560288,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 914272542
+              },
+              {
+                "batches": 72,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 461,
+                "prescan_survivors": 3404,
+                "seconds": 1.9245747560000002,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1842648588
+              },
+              {
+                "batches": 73,
+                "exact_tile_retries": 0,
+                "periods": 289901,
+                "phase_bins": 922,
+                "prescan_survivors": 6016,
+                "seconds": 2.201212106,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3758160051
+              },
+              {
+                "batches": 75,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 1844,
+                "prescan_survivors": 13803,
+                "seconds": 3.024484436,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 7903994364
+              },
+              {
+                "batches": 92,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 3687,
+                "prescan_survivors": 39408,
+                "seconds": 4.837226325,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 18348740892
+              },
+              {
+                "batches": 265,
+                "exact_tile_retries": 0,
+                "periods": 289901,
+                "phase_bins": 7373,
+                "prescan_survivors": 121519,
+                "seconds": 10.644506172,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 53042436171
+              },
+              {
+                "batches": 792,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 14746,
+                "prescan_survivors": 254845,
+                "seconds": 32.719301649,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 159175180890
+              },
+              {
+                "batches": 427,
+                "exact_tile_retries": 0,
+                "periods": 110401,
+                "phase_bins": 19200,
+                "prescan_survivors": 109938,
+                "seconds": 17.181189245,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 85607798400
+              }
+            ],
+            "clipped": 864,
+            "durations_hours": [
+              0.5,
+              0.625,
+              0.78125,
+              0.976562,
+              1.220703,
+              1.5258789999999998,
+              1.907349,
+              2.384186,
+              2.980232
+            ],
+            "error_inflation": 1.0,
+            "family": 0,
+            "observations": 19844,
+            "periods": 2429604,
+            "rho": [
+              1.0365067200430782,
+              1.0347140683794973,
+              1.007791637262404,
+              1.0068465450081023,
+              1.0340671482627066,
+              1.0485666291946665,
+              1.0040176137060992,
+              1.0,
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 0.4
+          },
+          {
+            "bands": [
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38910,
+                "phase_bins": 32,
+                "prescan_survivors": 163,
+                "seconds": 0.479219241,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1883328
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 64,
+                "prescan_survivors": 230,
+                "seconds": 0.477161889,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3779424
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 128,
+                "prescan_survivors": 383,
+                "seconds": 0.47455288,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 7617600
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38910,
+                "phase_bins": 256,
+                "prescan_survivors": 808,
+                "seconds": 0.477305121,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 15561984
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 512,
+                "prescan_survivors": 2232,
+                "seconds": 0.505744485,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 33310464
+              },
+              {
+                "batches": 13,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 1024,
+                "prescan_survivors": 8289,
+                "seconds": 0.589328534,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 85228032
+              },
+              {
+                "batches": 18,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 2048,
+                "prescan_survivors": 27065,
+                "seconds": 0.881735467,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 285815808
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 12898,
+                "phase_bins": 2577,
+                "prescan_survivors": 11834,
+                "seconds": 0.379511471,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 141326526
+              }
+            ],
+            "clipped": 993,
+            "durations_hours": [
+              3.72529
+            ],
+            "error_inflation": 1.0,
+            "family": 1,
+            "observations": 19715,
+            "periods": 285263,
+            "rho": [
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 0.465661
+          },
+          {
+            "bands": [
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31127,
+                "phase_bins": 32,
+                "prescan_survivors": 213,
+                "seconds": 0.428985371,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1514544
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 64,
+                "prescan_survivors": 331,
+                "seconds": 0.421958094,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3051648
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 128,
+                "prescan_survivors": 445,
+                "seconds": 0.416528692,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 6147072
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31127,
+                "phase_bins": 256,
+                "prescan_survivors": 730,
+                "seconds": 0.418946153,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 12513408
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 512,
+                "prescan_survivors": 3029,
+                "seconds": 0.447156308,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 28557312
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 1024,
+                "prescan_survivors": 11311,
+                "seconds": 0.56805886,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 82556928
+              },
+              {
+                "batches": 16,
+                "exact_tile_retries": 0,
+                "periods": 31127,
+                "phase_bins": 2048,
+                "prescan_survivors": 26022,
+                "seconds": 0.839774441,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 255501312
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 297,
+                "phase_bins": 2062,
+                "prescan_survivors": 279,
+                "seconds": 0.018110677,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2644515
+              }
+            ],
+            "clipped": 1249,
+            "durations_hours": [
+              4.656613
+            ],
+            "error_inflation": 1.0,
+            "family": 2,
+            "observations": 19459,
+            "periods": 218182,
+            "rho": [
+              1.0142138097177873
+            ],
+            "segments": 15,
+            "window_days": 0.582077
+          },
+          {
+            "bands": [
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 32,
+                "prescan_survivors": 210,
+                "seconds": 0.379373712,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1215360
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 64,
+                "prescan_survivors": 259,
+                "seconds": 0.380570768,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2440128
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 128,
+                "prescan_survivors": 374,
+                "seconds": 0.383769726,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 4924416
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 256,
+                "prescan_survivors": 1076,
+                "seconds": 0.392743562,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 10387968
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24899,
+                "phase_bins": 512,
+                "prescan_survivors": 3448,
+                "seconds": 0.424081273,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 24418560
+              },
+              {
+                "batches": 10,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 1024,
+                "prescan_survivors": 11890,
+                "seconds": 0.550835656,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 74772480
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 17122,
+                "phase_bins": 1650,
+                "prescan_survivors": 14296,
+                "seconds": 0.526765382,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 113142150
+              }
+            ],
+            "clipped": 1545,
+            "durations_hours": [
+              5.820766
+            ],
+            "error_inflation": 1.0,
+            "family": 3,
+            "observations": 19163,
+            "periods": 166521,
+            "rho": [
+              1.0410523556897793
+            ],
+            "segments": 15,
+            "window_days": 0.727596
+          },
+          {
+            "bands": [
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 32,
+                "prescan_survivors": 85,
+                "seconds": 0.352294683,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 964272
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 64,
+                "prescan_survivors": 180,
+                "seconds": 0.349877186,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1946784
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 128,
+                "prescan_survivors": 308,
+                "seconds": 0.351054633,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3942720
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19918,
+                "phase_bins": 256,
+                "prescan_survivors": 1158,
+                "seconds": 0.363009462,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 8537856
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 512,
+                "prescan_survivors": 3149,
+                "seconds": 0.393410674,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 20134656
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 1024,
+                "prescan_survivors": 10834,
+                "seconds": 0.515493297,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 63877632
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 7284,
+                "phase_bins": 1320,
+                "prescan_survivors": 5797,
+                "seconds": 0.261048206,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 37378440
+              }
+            ],
+            "clipped": 1925,
+            "durations_hours": [
+              7.275958
+            ],
+            "error_inflation": 1.0022715971974805,
+            "family": 4,
+            "observations": 18783,
+            "periods": 126797,
+            "rho": [
+              1.0580828889362879
+            ],
+            "segments": 15,
+            "window_days": 0.909495
+          },
+          {
+            "bands": [
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 32,
+                "prescan_survivors": 73,
+                "seconds": 0.317297112,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 771840
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 64,
+                "prescan_survivors": 138,
+                "seconds": 0.314201956,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1556160
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 128,
+                "prescan_survivors": 155,
+                "seconds": 0.316060606,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3118848
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 256,
+                "prescan_survivors": 783,
+                "seconds": 0.326328182,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 6720000
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 512,
+                "prescan_survivors": 2477,
+                "seconds": 0.353508366,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 16041984
+              },
+              {
+                "batches": 7,
+                "exact_tile_retries": 0,
+                "periods": 15933,
+                "phase_bins": 1024,
+                "prescan_survivors": 8551,
+                "seconds": 0.458210571,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 50741760
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 698,
+                "phase_bins": 1056,
+                "prescan_survivors": 367,
+                "seconds": 0.028889195,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2268288
+              }
+            ],
+            "clipped": 2406,
+            "durations_hours": [
+              9.094947
+            ],
+            "error_inflation": 1.0027110747018524,
+            "family": 5,
+            "observations": 18302,
+            "periods": 96301,
+            "rho": [
+              1.1045162693386588
+            ],
+            "segments": 15,
+            "window_days": 1.136868
+          },
+          {
+            "bands": [
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 32,
+                "prescan_survivors": 140,
+                "seconds": 0.276283795,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 625248
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 64,
+                "prescan_survivors": 257,
+                "seconds": 0.278067303,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1272960
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 128,
+                "prescan_survivors": 487,
+                "seconds": 0.282972071,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2634240
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 256,
+                "prescan_survivors": 1361,
+                "seconds": 0.297868163,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 5939712
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 512,
+                "prescan_survivors": 4186,
+                "seconds": 0.344872835,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 16218624
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 9201,
+                "phase_bins": 845,
+                "prescan_survivors": 6221,
+                "seconds": 0.326443176,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 27418701
+              }
+            ],
+            "clipped": 3009,
+            "durations_hours": [
+              11.368684
+            ],
+            "error_inflation": 1.0023086149021712,
+            "family": 6,
+            "observations": 17699,
+            "periods": 72931,
+            "rho": [
+              1.0037062330188442
+            ],
+            "segments": 15,
+            "window_days": 1.421086
+          },
+          {
+            "bands": [
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10196,
+                "phase_bins": 32,
+                "prescan_survivors": 58,
+                "seconds": 0.231637333,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 494976
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10196,
+                "phase_bins": 64,
+                "prescan_survivors": 122,
+                "seconds": 0.231680896,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1002240
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10195,
+                "phase_bins": 128,
+                "prescan_survivors": 321,
+                "seconds": 0.235753556,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2080704
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10196,
+                "phase_bins": 256,
+                "prescan_survivors": 742,
+                "seconds": 0.247172876,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 4485120
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10195,
+                "phase_bins": 512,
+                "prescan_survivors": 2398,
+                "seconds": 0.276752999,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 11513088
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 4078,
+                "phase_bins": 676,
+                "prescan_survivors": 1929,
+                "seconds": 0.141102389,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 8047104
+              }
+            ],
+            "clipped": 3728,
+            "durations_hours": [
+              14.210855000000002
+            ],
+            "error_inflation": 1.0005007415549914,
+            "family": 7,
+            "observations": 16980,
+            "periods": 55056,
+            "rho": [
+              1.0962911364257653
+            ],
+            "segments": 15,
+            "window_days": 1.776357
+          },
+          {
+            "bands": [
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8156,
+                "phase_bins": 32,
+                "prescan_survivors": 15,
+                "seconds": 0.184935354,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 392928
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8155,
+                "phase_bins": 64,
+                "prescan_survivors": 13,
+                "seconds": 0.184621888,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 785376
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8155,
+                "phase_bins": 128,
+                "prescan_survivors": 14,
+                "seconds": 0.184542807,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1571136
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8155,
+                "phase_bins": 256,
+                "prescan_survivors": 15,
+                "seconds": 0.185300844,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3143040
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8156,
+                "phase_bins": 512,
+                "prescan_survivors": 60,
+                "seconds": 0.186992542,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 6355968
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 636,
+                "phase_bins": 541,
+                "prescan_survivors": 4,
+                "seconds": 0.022827573,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 521652
+              }
+            ],
+            "clipped": 4662,
+            "durations_hours": [
+              17.763568
+            ],
+            "error_inflation": 1.0006242806092094,
+            "family": 8,
+            "observations": 16046,
+            "periods": 41413,
+            "rho": [
+              1.4506497198876784
+            ],
+            "segments": 14,
+            "window_days": 2.220446
+          },
+          {
+            "bands": [
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6524,
+                "phase_bins": 32,
+                "prescan_survivors": 25,
+                "seconds": 0.145900518,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 315552
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6523,
+                "phase_bins": 64,
+                "prescan_survivors": 26,
+                "seconds": 0.14724439,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 631200
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6523,
+                "phase_bins": 128,
+                "prescan_survivors": 22,
+                "seconds": 0.146016457,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1260864
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6523,
+                "phase_bins": 256,
+                "prescan_survivors": 149,
+                "seconds": 0.149007487,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2619264
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 4932,
+                "phase_bins": 433,
+                "prescan_survivors": 178,
+                "seconds": 0.122462207,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3427158
+              }
+            ],
+            "clipped": 5775,
+            "durations_hours": [
+              22.20446
+            ],
+            "error_inflation": 1.0,
+            "family": 9,
+            "observations": 14933,
+            "periods": 31025,
+            "rho": [
+              1.3579432669285152
+            ],
+            "segments": 14,
+            "window_days": 2.775558
+          },
+          {
+            "bands": [
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 5218,
+                "phase_bins": 32,
+                "prescan_survivors": 28,
+                "seconds": 0.112358373,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 253152
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 5217,
+                "phase_bins": 64,
+                "prescan_survivors": 6,
+                "seconds": 0.111848123,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 501984
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 5217,
+                "phase_bins": 128,
+                "prescan_survivors": 8,
+                "seconds": 0.112673013,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1004736
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 5218,
+                "phase_bins": 256,
+                "prescan_survivors": 12,
+                "seconds": 0.113701644,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2012928
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 2265,
+                "phase_bins": 346,
+                "prescan_survivors": 12,
+                "seconds": 0.053865942,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1187991
+              }
+            ],
+            "clipped": 7141,
+            "durations_hours": [
+              27.755576
+            ],
+            "error_inflation": 1.0,
+            "family": 10,
+            "observations": 13567,
+            "periods": 23135,
+            "rho": [
+              1.461655514948828
+            ],
+            "segments": 14,
+            "window_days": 3.469447
+          }
+        ],
+        "pass": 1,
+        "rows": 170559
+      },
+      {
+        "accepted": 0,
+        "families": [
+          {
+            "bands": [
+              {
+                "batches": 72,
+                "exact_tile_retries": 0,
+                "periods": 289901,
+                "phase_bins": 116,
+                "prescan_survivors": 281,
+                "seconds": 1.617987384,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 303243372
+              },
+              {
+                "batches": 72,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 231,
+                "prescan_survivors": 943,
+                "seconds": 1.625116158,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 906020991
+              },
+              {
+                "batches": 72,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 461,
+                "prescan_survivors": 1663,
+                "seconds": 1.728897967,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1820978361
+              },
+              {
+                "batches": 72,
+                "exact_tile_retries": 0,
+                "periods": 289901,
+                "phase_bins": 922,
+                "prescan_survivors": 3120,
+                "seconds": 2.028220677,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3686067027
+              },
+              {
+                "batches": 73,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 1844,
+                "prescan_survivors": 6412,
+                "seconds": 2.6874811899999997,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 7536011256
+              },
+              {
+                "batches": 85,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 3687,
+                "prescan_survivors": 24707,
+                "seconds": 4.215934661,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 16885271043
+              },
+              {
+                "batches": 240,
+                "exact_tile_retries": 0,
+                "periods": 289901,
+                "phase_bins": 7373,
+                "prescan_survivors": 97026,
+                "seconds": 9.268106383,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 48166590168
+              },
+              {
+                "batches": 767,
+                "exact_tile_retries": 0,
+                "periods": 289900,
+                "phase_bins": 14746,
+                "prescan_survivors": 242042,
+                "seconds": 30.005647505,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 154077768864
+              },
+              {
+                "batches": 425,
+                "exact_tile_retries": 0,
+                "periods": 110401,
+                "phase_bins": 19200,
+                "prescan_survivors": 109076,
+                "seconds": 16.56369836,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 85160937600
+              }
+            ],
+            "clipped": 864,
+            "durations_hours": [
+              0.5,
+              0.625,
+              0.78125,
+              0.976562,
+              1.220703,
+              1.5258789999999998,
+              1.907349,
+              2.384186,
+              2.980232
+            ],
+            "error_inflation": 1.0,
+            "family": 0,
+            "observations": 19310,
+            "periods": 2429604,
+            "rho": [
+              1.0246438470369994,
+              1.0193423638858543,
+              1.0,
+              1.0,
+              1.009149622822754,
+              1.0300541609497658,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 0.4
+          },
+          {
+            "bands": [
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38910,
+                "phase_bins": 32,
+                "prescan_survivors": 53,
+                "seconds": 0.441039647,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1872768
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 64,
+                "prescan_survivors": 99,
+                "seconds": 0.438704262,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3754272
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 128,
+                "prescan_survivors": 218,
+                "seconds": 0.438589961,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 7554240
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38910,
+                "phase_bins": 256,
+                "prescan_survivors": 305,
+                "seconds": 0.441610767,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 15175680
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 512,
+                "prescan_survivors": 1461,
+                "seconds": 0.461450006,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 32126208
+              },
+              {
+                "batches": 12,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 1024,
+                "prescan_survivors": 6382,
+                "seconds": 0.538766493,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 79369728
+              },
+              {
+                "batches": 18,
+                "exact_tile_retries": 0,
+                "periods": 38909,
+                "phase_bins": 2048,
+                "prescan_survivors": 26215,
+                "seconds": 0.855033927,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 280593408
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 12898,
+                "phase_bins": 2577,
+                "prescan_survivors": 11708,
+                "seconds": 0.360475727,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 140352420
+              }
+            ],
+            "clipped": 993,
+            "durations_hours": [
+              3.72529
+            ],
+            "error_inflation": 1.0,
+            "family": 1,
+            "observations": 19183,
+            "periods": 285263,
+            "rho": [
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 0.465661
+          },
+          {
+            "bands": [
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31127,
+                "phase_bins": 32,
+                "prescan_survivors": 92,
+                "seconds": 0.403829077,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1502928
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 64,
+                "prescan_survivors": 144,
+                "seconds": 0.400195333,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3015744
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 128,
+                "prescan_survivors": 175,
+                "seconds": 0.402060817,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 6043392
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31127,
+                "phase_bins": 256,
+                "prescan_survivors": 370,
+                "seconds": 0.405402654,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 12236928
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 512,
+                "prescan_survivors": 2433,
+                "seconds": 0.432048949,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 27641856
+              },
+              {
+                "batches": 11,
+                "exact_tile_retries": 0,
+                "periods": 31126,
+                "phase_bins": 1024,
+                "prescan_survivors": 10909,
+                "seconds": 0.551544636,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 81321984
+              },
+              {
+                "batches": 16,
+                "exact_tile_retries": 0,
+                "periods": 31127,
+                "phase_bins": 2048,
+                "prescan_survivors": 26278,
+                "seconds": 0.824703117,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 257074176
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 297,
+                "phase_bins": 2062,
+                "prescan_survivors": 279,
+                "seconds": 0.017793407,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2644515
+              }
+            ],
+            "clipped": 1249,
+            "durations_hours": [
+              4.656613
+            ],
+            "error_inflation": 1.0,
+            "family": 2,
+            "observations": 18927,
+            "periods": 218182,
+            "rho": [
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 0.582077
+          },
+          {
+            "bands": [
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 32,
+                "prescan_survivors": 47,
+                "seconds": 0.370078069,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1199712
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 64,
+                "prescan_survivors": 125,
+                "seconds": 0.369455607,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2414400
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 128,
+                "prescan_survivors": 160,
+                "seconds": 0.368879565,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 4842240
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 256,
+                "prescan_survivors": 754,
+                "seconds": 0.37902714,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 10140672
+              },
+              {
+                "batches": 8,
+                "exact_tile_retries": 0,
+                "periods": 24899,
+                "phase_bins": 512,
+                "prescan_survivors": 2650,
+                "seconds": 0.405352091,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 23192832
+              },
+              {
+                "batches": 10,
+                "exact_tile_retries": 0,
+                "periods": 24900,
+                "phase_bins": 1024,
+                "prescan_survivors": 11278,
+                "seconds": 0.532397562,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 72892416
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 17122,
+                "phase_bins": 1650,
+                "prescan_survivors": 14377,
+                "seconds": 0.518615735,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 113543100
+              }
+            ],
+            "clipped": 1545,
+            "durations_hours": [
+              5.820766
+            ],
+            "error_inflation": 1.0,
+            "family": 3,
+            "observations": 18631,
+            "periods": 166521,
+            "rho": [
+              1.045373034891808
+            ],
+            "segments": 15,
+            "window_days": 0.727596
+          },
+          {
+            "bands": [
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 32,
+                "prescan_survivors": 55,
+                "seconds": 0.341958661,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 961392
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 64,
+                "prescan_survivors": 144,
+                "seconds": 0.340313812,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1939872
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 128,
+                "prescan_survivors": 264,
+                "seconds": 0.34103601,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3925824
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19918,
+                "phase_bins": 256,
+                "prescan_survivors": 1329,
+                "seconds": 0.358149435,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 8669184
+              },
+              {
+                "batches": 6,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 512,
+                "prescan_survivors": 3912,
+                "seconds": 0.39392568,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 21306624
+              },
+              {
+                "batches": 9,
+                "exact_tile_retries": 0,
+                "periods": 19919,
+                "phase_bins": 1024,
+                "prescan_survivors": 13118,
+                "seconds": 0.534475626,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 70894080
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 7284,
+                "phase_bins": 1320,
+                "prescan_survivors": 6523,
+                "seconds": 0.26731857,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 40253400
+              }
+            ],
+            "clipped": 1925,
+            "durations_hours": [
+              7.275958
+            ],
+            "error_inflation": 1.001074999708068,
+            "family": 4,
+            "observations": 18251,
+            "periods": 126797,
+            "rho": [
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 0.909495
+          },
+          {
+            "bands": [
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 32,
+                "prescan_survivors": 67,
+                "seconds": 0.307915355,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 771264
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 64,
+                "prescan_survivors": 81,
+                "seconds": 0.304758224,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1545216
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 128,
+                "prescan_survivors": 196,
+                "seconds": 0.306641548,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3134592
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 256,
+                "prescan_survivors": 992,
+                "seconds": 0.319430879,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 6880512
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 15934,
+                "phase_bins": 512,
+                "prescan_survivors": 3475,
+                "seconds": 0.357366759,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 17574912
+              },
+              {
+                "batches": 7,
+                "exact_tile_retries": 0,
+                "periods": 15933,
+                "phase_bins": 1024,
+                "prescan_survivors": 10531,
+                "seconds": 0.475782954,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 56824320
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 698,
+                "phase_bins": 1056,
+                "prescan_survivors": 515,
+                "seconds": 0.03058217,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2737152
+              }
+            ],
+            "clipped": 2406,
+            "durations_hours": [
+              9.094947
+            ],
+            "error_inflation": 1.001748097817399,
+            "family": 5,
+            "observations": 17770,
+            "periods": 96301,
+            "rho": [
+              1.0144798166592686
+            ],
+            "segments": 15,
+            "window_days": 1.136868
+          },
+          {
+            "bands": [
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 32,
+                "prescan_survivors": 48,
+                "seconds": 0.265385978,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 616416
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 64,
+                "prescan_survivors": 93,
+                "seconds": 0.264855695,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1241472
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 128,
+                "prescan_survivors": 335,
+                "seconds": 0.271152901,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2575872
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 256,
+                "prescan_survivors": 692,
+                "seconds": 0.278492714,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 5425920
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 12746,
+                "phase_bins": 512,
+                "prescan_survivors": 2856,
+                "seconds": 0.313166473,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 14175744
+              },
+              {
+                "batches": 5,
+                "exact_tile_retries": 0,
+                "periods": 9201,
+                "phase_bins": 845,
+                "prescan_survivors": 5156,
+                "seconds": 0.299708146,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 24718926
+              }
+            ],
+            "clipped": 3009,
+            "durations_hours": [
+              11.368684
+            ],
+            "error_inflation": 1.0013086786407215,
+            "family": 6,
+            "observations": 17167,
+            "periods": 72931,
+            "rho": [
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 1.421086
+          },
+          {
+            "bands": [
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10196,
+                "phase_bins": 32,
+                "prescan_survivors": 61,
+                "seconds": 0.225864127,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 495264
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10196,
+                "phase_bins": 64,
+                "prescan_survivors": 79,
+                "seconds": 0.223746723,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 993984
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10195,
+                "phase_bins": 128,
+                "prescan_survivors": 279,
+                "seconds": 0.226215415,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2064576
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10196,
+                "phase_bins": 256,
+                "prescan_survivors": 609,
+                "seconds": 0.231859897,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 4382976
+              },
+              {
+                "batches": 4,
+                "exact_tile_retries": 0,
+                "periods": 10195,
+                "phase_bins": 512,
+                "prescan_survivors": 2382,
+                "seconds": 0.267104259,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 11488512
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 4078,
+                "phase_bins": 676,
+                "prescan_survivors": 1670,
+                "seconds": 0.130547424,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 7521852
+              }
+            ],
+            "clipped": 3728,
+            "durations_hours": [
+              14.210855000000002
+            ],
+            "error_inflation": 1.0,
+            "family": 7,
+            "observations": 16448,
+            "periods": 55056,
+            "rho": [
+              1.0
+            ],
+            "segments": 15,
+            "window_days": 1.776357
+          },
+          {
+            "bands": [
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8156,
+                "phase_bins": 32,
+                "prescan_survivors": 4,
+                "seconds": 0.176262566,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 391872
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8155,
+                "phase_bins": 64,
+                "prescan_survivors": 13,
+                "seconds": 0.176954247,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 785376
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8155,
+                "phase_bins": 128,
+                "prescan_survivors": 39,
+                "seconds": 0.176805892,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1580736
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8155,
+                "phase_bins": 256,
+                "prescan_survivors": 25,
+                "seconds": 0.179433442,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3150720
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 8156,
+                "phase_bins": 512,
+                "prescan_survivors": 102,
+                "seconds": 0.183323744,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 6420480
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 636,
+                "phase_bins": 541,
+                "prescan_survivors": 2,
+                "seconds": 0.020678383,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 518406
+              }
+            ],
+            "clipped": 4662,
+            "durations_hours": [
+              17.763568
+            ],
+            "error_inflation": 1.0,
+            "family": 8,
+            "observations": 15522,
+            "periods": 41413,
+            "rho": [
+              1.1987791407905617
+            ],
+            "segments": 14,
+            "window_days": 2.220446
+          },
+          {
+            "bands": [
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6524,
+                "phase_bins": 32,
+                "prescan_survivors": 6,
+                "seconds": 0.141494865,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 313728
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6523,
+                "phase_bins": 64,
+                "prescan_survivors": 17,
+                "seconds": 0.140910795,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 629472
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6523,
+                "phase_bins": 128,
+                "prescan_survivors": 29,
+                "seconds": 0.141224445,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1263552
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 6523,
+                "phase_bins": 256,
+                "prescan_survivors": 221,
+                "seconds": 0.146837982,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2674560
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 4932,
+                "phase_bins": 433,
+                "prescan_survivors": 483,
+                "seconds": 0.122140005,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 3823353
+              }
+            ],
+            "clipped": 5775,
+            "durations_hours": [
+              22.20446
+            ],
+            "error_inflation": 1.0,
+            "family": 9,
+            "observations": 14467,
+            "periods": 31025,
+            "rho": [
+              1.2828417731388555
+            ],
+            "segments": 14,
+            "window_days": 2.775558
+          },
+          {
+            "bands": [
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 5218,
+                "phase_bins": 32,
+                "prescan_survivors": 1,
+                "seconds": 0.1070046,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 250560
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 5217,
+                "phase_bins": 32,
+                "prescan_survivors": 0,
+                "seconds": 0.106207872,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 500832
+              },
+              {
+                "batches": 3,
+                "exact_tile_retries": 0,
+                "periods": 5217,
+                "phase_bins": 128,
+                "prescan_survivors": 1,
+                "seconds": 0.107567787,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1002048
+              },
+              {
+                "batches": 2,
+                "exact_tile_retries": 0,
+                "periods": 5218,
+                "phase_bins": 128,
+                "prescan_survivors": 0,
+                "seconds": 0.106562362,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 2003712
+              },
+              {
+                "batches": 1,
+                "exact_tile_retries": 0,
+                "periods": 2265,
+                "phase_bins": 173,
+                "prescan_survivors": 0,
+                "seconds": 0.049934481,
+                "seconds_cumulative": 0.0,
+                "seconds_fold": 0.0,
+                "seconds_scan": 0.0,
+                "templates_scanned": 1175535
+              }
+            ],
+            "clipped": 7141,
+            "durations_hours": [
+              27.755576
+            ],
+            "error_inflation": 1.0,
+            "family": 10,
+            "observations": 13143,
+            "periods": 23135,
+            "rho": [
+              1.374923817885486
+            ],
+            "segments": 14,
+            "window_days": 3.469447
+          }
+        ],
+        "pass": 2,
+        "rows": 172661
+      }
+    ],
+    "periodic_period_max_days": 100.0,
+    "periods_tested": 3546228,
+    "qualifying_periods": 170559,
+    "resolved_peaks": 3,
+    "seconds_preparation": 1.348264532,
+    "seconds_scan": 187.235880756,
+    "seconds_search": 189.072617294,
+    "seconds_select": 1.718479545,
+    "seconds_single_events": 0.046711741,
+    "seconds_total": 190.420881826,
+    "single_event_scan": {
+      "0": {
+        "overflow": false,
+        "templates_scanned": 15057846,
+        "threshold_survivors": 74
+      },
+      "1": {
+        "overflow": false,
+        "templates_scanned": 224559,
+        "threshold_survivors": 3
+      },
+      "10": {
+        "overflow": false,
+        "templates_scanned": 30132,
+        "threshold_survivors": 0
+      },
+      "2": {
+        "overflow": false,
+        "templates_scanned": 179646,
+        "threshold_survivors": 6
+      },
+      "3": {
+        "overflow": false,
+        "templates_scanned": 143715,
+        "threshold_survivors": 4
+      },
+      "4": {
+        "overflow": false,
+        "templates_scanned": 114969,
+        "threshold_survivors": 4
+      },
+      "5": {
+        "overflow": false,
+        "templates_scanned": 91974,
+        "threshold_survivors": 2
+      },
+      "6": {
+        "overflow": false,
+        "templates_scanned": 73578,
+        "threshold_survivors": 0
+      },
+      "7": {
+        "overflow": false,
+        "templates_scanned": 58860,
+        "threshold_survivors": 0
+      },
+      "8": {
+        "overflow": false,
+        "templates_scanned": 47085,
+        "threshold_survivors": 0
+      },
+      "9": {
+        "overflow": false,
+        "templates_scanned": 37665,
+        "threshold_survivors": 0
+      }
+    },
+    "single_events": 0
+  },
+  "tic": 72668830
+}

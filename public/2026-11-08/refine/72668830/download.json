@@ -1,0 +1,14 @@
+{
+  "error": null,
+  "log": [
+    "TIC 72668830 sector 3 present",
+    "TIC 72668830 sector 30 present",
+    "TIC 72668830 sector 97 present",
+    "TIC 72668830 sector 105 present",
+    "TIC 72668830 sector 106 present",
+    "TIC 72668830 sector 107 present"
+  ],
+  "ok": true,
+  "processed_utc": "2026-11-08T20:08:53Z",
+  "tic": 72668830
+}
