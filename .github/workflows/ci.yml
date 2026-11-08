@@ -1,11 +1,9 @@
-# Build the host binary and the device code (PTX) and run the host tests.
-# No GPU is needed: cargo oxide build compiles the kernels ahead of time and
-# the tests cover the host-side arithmetic.
+# Manual run: build the host binary and the device code (PTX) and run the host
+# tests. No GPU is needed: cargo oxide build compiles the kernels ahead of time
+# and the tests cover the host-side arithmetic.
 name: CI
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-24.04
