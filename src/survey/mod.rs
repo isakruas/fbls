@@ -70,7 +70,7 @@ pub fn run_fetch(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// `fbls survey <search|vet|pixel|refine|publish> (--targets FILE | --tic ID... | --all-downloaded) [--root DIR] [--public DIR] [--author NAME] [--device N] [--pmax D] [--workers K]`
-/// `--workers` defaults to 2 for `search` (stars sharing the GPU) and to the CPU thread count for `vet`.
+/// `--workers` defaults to 2 for `search` (stars sharing the GPU) and to the CPU thread count for `vet` and `pixel`.
 pub fn run_survey(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let stage = args
         .first()
@@ -92,7 +92,7 @@ pub fn run_survey(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(stages::PERIOD_MAX),
         workers: arg(args, "--workers")
             .and_then(|w| w.parse().ok())
-            .unwrap_or(if stage == "vet" {
+            .unwrap_or(if stage == "vet" || stage == "pixel" {
                 std::thread::available_parallelism().map_or(4, |n| n.get())
             } else {
                 2

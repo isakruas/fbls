@@ -532,24 +532,29 @@ impl Survey {
                 read_json(&self.vet_path(t)).is_some() && read_json(&self.pixel_path(t)).is_none()
             })
             .collect();
-        eprintln!("pixel: {} stars, {} pending", tics.len(), pending.len());
-        for (n, tic) in pending.iter().enumerate() {
+        eprintln!(
+            "pixel: {} stars, {} pending, {} workers",
+            tics.len(),
+            pending.len(),
+            self.workers
+        );
+        parallel(&pending, self.workers, |_, &tic| {
             let started = std::time::Instant::now();
-            let vetting = read_json(&self.vet_path(*tic)).unwrap();
-            let mut value = match load_star(&self.root, *tic, Some(SEARCH_SECTORS)) {
+            let vetting = read_json(&self.vet_path(tic)).unwrap_or_default();
+            let mut value = match load_star(&self.root, tic, Some(SEARCH_SECTORS)) {
                 Ok(star) => self.pixel_star(&star, &vetting),
                 Err(e) => json!({"tic": tic, "error": e, "events": {}}),
             };
             value["seconds"] = json!(started.elapsed().as_secs_f64());
-            write_json(&self.pixel_path(*tic), value.clone())?;
-            eprintln!(
-                "[{}/{}] TIC {tic} {:.0}s {} signals",
-                n + 1,
-                pending.len(),
+            if let Err(e) = write_json(&self.pixel_path(tic), value.clone()) {
+                return format!("TIC {tic} write failed: {e}");
+            }
+            format!(
+                "TIC {tic} {:.0}s {} signals",
                 started.elapsed().as_secs_f64(),
                 value["events"].as_object().map_or(0, |o| o.len())
-            );
-        }
+            )
+        });
         Ok(())
     }
 
