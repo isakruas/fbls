@@ -18,6 +18,8 @@ pub const MAX_GAP_SECTORS: i64 = 13;
 pub struct Sidecar {
     pub version: Option<i64>,
     pub tic: Option<i64>,
+    /// Older sidecars store the sector as a string ("88").
+    #[serde(default, deserialize_with = "number_or_string")]
     pub sector: Option<i64>,
     pub crowdsap: Option<f64>,
     #[serde(default)]
@@ -97,6 +99,20 @@ pub fn sector_files(folder: &Path) -> BTreeMap<i64, PathBuf> {
         }
     }
     out
+}
+
+fn number_or_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Number(i64),
+        Text(String),
+    }
+    Ok(match Option::<Raw>::deserialize(d)? {
+        Some(Raw::Number(n)) => Some(n),
+        Some(Raw::Text(s)) => Some(s.trim().parse().map_err(serde::de::Error::custom)?),
+        None => None,
+    })
 }
 
 pub fn read_sidecar(path: &Path) -> Sidecar {
@@ -226,5 +242,16 @@ mod tests {
             (5..=12).collect::<Vec<_>>()
         );
         assert_eq!(search_window(vec![5, 40], 8, 13), vec![40]);
+    }
+
+    #[test]
+    fn sector_as_number_or_string() {
+        let a: super::Sidecar = serde_json::from_str(r#"{"sector": 88, "product": "x"}"#).unwrap();
+        let b: super::Sidecar =
+            serde_json::from_str(r#"{"sector": "88", "product": "x"}"#).unwrap();
+        let c: super::Sidecar = serde_json::from_str(r#"{"product": "x"}"#).unwrap();
+        assert_eq!(a.sector, Some(88));
+        assert_eq!(b.sector, Some(88));
+        assert_eq!(c.sector, None);
     }
 }

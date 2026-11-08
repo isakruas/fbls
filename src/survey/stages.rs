@@ -374,6 +374,10 @@ impl Survey {
     pub fn pixel_star(&self, star: &Star, vetting: &Value) -> Value {
         let mut out = Map::new();
         for event in vetting["events"].as_array().cloned().unwrap_or_default() {
+            // A signal the vet matched to the catalog is a recovery, not a candidate.
+            if !event["known"].is_null() {
+                continue;
+            }
             if Self::passing(&event, None) {
                 let p = &event["peak"];
                 let result = pixel_test(
