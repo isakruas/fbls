@@ -45,7 +45,17 @@ fn circular_sum(cum: &[f64], row: usize, start: usize, width: usize, nb2: usize)
 
 /// Integral of a staircase (or its square) as nested interval sums.
 #[inline(always)]
-fn layered_sum(cum: &[f64], row: usize, start: usize, width: usize, shapes: &[f64], si: usize, nb2: usize, layers: usize, squared: bool) -> f64 {
+fn layered_sum(
+    cum: &[f64],
+    row: usize,
+    start: usize,
+    width: usize,
+    shapes: &[f64],
+    si: usize,
+    nb2: usize,
+    layers: usize,
+    squared: bool,
+) -> f64 {
     let mut value = 0.0;
     for layer in 0..layers {
         let fraction = shapes[(si * layers + layer) * 3];
@@ -62,7 +72,14 @@ pub mod evidence_gpu {
 
     /// Fold the four fields over two periods: bin = floor(t * scale) mod 2 nb.
     #[kernel]
-    pub fn fold_two(time: &[f64], fields: &[f64], scale: f64, folded: &[DeviceAtomicF64], n: u32, nb2: u32) {
+    pub fn fold_two(
+        time: &[f64],
+        fields: &[f64],
+        scale: f64,
+        folded: &[DeviceAtomicF64],
+        n: u32,
+        nb2: u32,
+    ) {
         let i = (thread::blockIdx_x() * thread::blockDim_x() + thread::threadIdx_x()) as usize;
         let n = n as usize;
         if i >= n {
@@ -91,14 +108,22 @@ pub mod evidence_gpu {
         let segments = nb2.div_ceil(CUM_BLOCK);
         for seg in 0..segments {
             let b = seg * CUM_BLOCK + lane;
-            let v = if b < nb2 { folded[field * nb2 + b].load(AtomicOrdering::Relaxed) } else { 0.0 };
+            let v = if b < nb2 {
+                folded[field * nb2 + b].load(AtomicOrdering::Relaxed)
+            } else {
+                0.0
+            };
             unsafe {
                 SCAN[lane] = v;
             }
             thread::sync_threads();
             let mut stride = 1;
             while stride < CUM_BLOCK {
-                let add = if lane >= stride { unsafe { SCAN[lane - stride] } } else { 0.0 };
+                let add = if lane >= stride {
+                    unsafe { SCAN[lane - stride] }
+                } else {
+                    0.0
+                };
                 thread::sync_threads();
                 if lane >= stride {
                     unsafe {
@@ -153,16 +178,19 @@ pub mod evidence_gpu {
         let c = baseline;
         let mut best = NEG_INF;
         let mut bound_merit = NEG_INF;
-        let (mut best_a, mut best_q, mut best_null, mut best_ps, mut best_bs) = (0.0, 1.0, 0.0, 0.0, 0.0);
+        let (mut best_a, mut best_q, mut best_null, mut best_ps, mut best_bs) =
+            (0.0, 1.0, 0.0, 0.0, 0.0);
         let mut best_key = 0u64;
         for di in 0..nd {
             let raw_k = ((durations[di] * scale + 0.5).floor() as usize).max(1);
             let k = raw_k.min(nb2 / 8 - 1);
             let r = rho[di];
-            let count = circular_sum(cum, 2 * (nb2 + 1), jj, k, nb2) + circular_sum(cum, 2 * (nb2 + 1), jj + nb, k, nb2);
+            let count = circular_sum(cum, 2 * (nb2 + 1), jj, k, nb2)
+                + circular_sum(cum, 2 * (nb2 + 1), jj + nb, k, nb2);
             let usable = j < nb && raw_k < nb2 / 8 && count >= 3.0 && count <= n - 3.0;
             for si in 0..ns {
-                let a = layered_sum(cum, 0, jj, k, shapes, si, nb2, layers, false) + layered_sum(cum, 0, jj + nb, k, shapes, si, nb2, layers, false);
+                let a = layered_sum(cum, 0, jj, k, shapes, si, nb2, layers, false)
+                    + layered_sum(cum, 0, jj + nb, k, shapes, si, nb2, layers, false);
                 let pe = layered_sum(cum, nb2 + 1, jj, k, shapes, si, nb2, layers, false);
                 let po = layered_sum(cum, nb2 + 1, jj + nb, k, shapes, si, nb2, layers, false);
                 let ne = layered_sum(cum, nb2 + 1, jj, k, shapes, si, nb2, layers, true);
@@ -216,16 +244,29 @@ pub mod evidence_gpu {
         if lane == chosen {
             let maximum = unsafe { S_BEST[0] };
             let bound_maximum = unsafe { S_BEST[1] };
-            let lower_p = positive_amplitude_evidence(best_a, best_q, parameters[0]) + 0.75f64.ln() + best_null + best_ps;
-            let lower_b = log_add(positive_amplitude_evidence(best_a, best_q, parameters[1]), positive_amplitude_evidence(best_a, best_q, parameters[2]))
-                + 0.025f64.ln()
+            let lower_p = positive_amplitude_evidence(best_a, best_q, parameters[0])
+                + 0.75f64.ln()
+                + best_null
+                + best_ps;
+            let lower_b = log_add(
+                positive_amplitude_evidence(best_a, best_q, parameters[1]),
+                positive_amplitude_evidence(best_a, best_q, parameters[2]),
+            ) + 0.025f64.ln()
                 + best_null
                 + best_bs;
             let out = tile * 4;
             unsafe {
                 *screen.get_unchecked_mut(out) = maximum;
-                *screen.get_unchecked_mut(out + 1) = if bound_maximum > NEG_INF { lower_p } else { NEG_INF };
-                *screen.get_unchecked_mut(out + 2) = if bound_maximum > NEG_INF { lower_b } else { NEG_INF };
+                *screen.get_unchecked_mut(out + 1) = if bound_maximum > NEG_INF {
+                    lower_p
+                } else {
+                    NEG_INF
+                };
+                *screen.get_unchecked_mut(out + 2) = if bound_maximum > NEG_INF {
+                    lower_b
+                } else {
+                    NEG_INF
+                };
                 *screen.get_unchecked_mut(out + 3) = best_key as f64;
             }
         }
@@ -268,12 +309,20 @@ pub mod evidence_gpu {
         let (nd, ns, layers) = (nd as usize, ns as usize, layers as usize);
         let pilot = pilot != 0;
         let pilot_key = floors[2] as u64;
-        let j = if pilot { (pilot_key % nb as u64) as usize } else { tile * EV_TILE + lane };
+        let j = if pilot {
+            (pilot_key % nb as u64) as usize
+        } else {
+            tile * EV_TILE + lane
+        };
         let jj = j.min(nb - 1);
         let c = baseline;
         let n = n as f64;
         let (tau_p, tau_b, tau_d) = (parameters[0], parameters[1], parameters[2]);
-        let (floor_p, floor_b) = if pilot { (NEG_INF, NEG_INF) } else { (floors[0], floors[1]) };
+        let (floor_p, floor_b) = if pilot {
+            (NEG_INF, NEG_INF)
+        } else {
+            (floors[0], floors[1])
+        };
 
         let mut best_joint = NEG_INF;
         let mut best_signal = NEG_INF;
@@ -285,15 +334,26 @@ pub mod evidence_gpu {
         let mut sum_b = NEG_INF;
         let mut omitted = 0u32;
 
-        let (di_begin, di_end) = if pilot { let d = ((pilot_key / nb as u64) % nd as u64) as usize; (d, d + 1) } else { (0, nd) };
+        let (di_begin, di_end) = if pilot {
+            let d = ((pilot_key / nb as u64) % nd as u64) as usize;
+            (d, d + 1)
+        } else {
+            (0, nd)
+        };
         for di in di_begin..di_end {
             let raw_k = ((durations[di] * scale + 0.5).floor() as usize).max(1);
             let k = raw_k.min(nb2 / 8 - 1);
             let rho2 = rho[di] * rho[di];
             let dlm = duration_log_mass[di];
-            let count = circular_sum(cum, 2 * (nb2 + 1), jj, k, nb2) + circular_sum(cum, 2 * (nb2 + 1), jj + nb, k, nb2);
+            let count = circular_sum(cum, 2 * (nb2 + 1), jj, k, nb2)
+                + circular_sum(cum, 2 * (nb2 + 1), jj + nb, k, nb2);
             let usable = j < nb && raw_k < nb2 / 8 && count >= 3.0 && count <= n - 3.0;
-            let (si_begin, si_end) = if pilot { let s = (pilot_key / (nb as u64 * nd as u64)) as usize; (s, s + 1) } else { (0, ns) };
+            let (si_begin, si_end) = if pilot {
+                let s = (pilot_key / (nb as u64 * nd as u64)) as usize;
+                (s, s + 1)
+            } else {
+                (0, ns)
+            };
             for si in si_begin..si_end {
                 let ae = layered_sum(cum, 0, jj, k, shapes, si, nb2, layers, false);
                 let ao = layered_sum(cum, 0, jj + nb, k, shapes, si, nb2, layers, false);
@@ -321,14 +381,21 @@ pub mod evidence_gpu {
                         let duration_ratio = orbit[orbital + 1];
                         let (logwp, logwb) = (orbit[orbital + 2], orbit[orbital + 3]);
                         let offset = (phase * nb as f64 + 0.5).floor() as i64;
-                        let sk = (((k as f64 * duration_ratio + 0.5).floor() as i64).max(1)).min(nb as i64 - 1) as usize;
-                        let s0 = (jj as i64 + offset + ((k as f64 - sk as f64) / 2.0).floor() as i64) as usize;
+                        let sk = (((k as f64 * duration_ratio + 0.5).floor() as i64).max(1))
+                            .min(nb as i64 - 1) as usize;
+                        let s0 =
+                            (jj as i64 + offset + ((k as f64 - sk as f64) / 2.0).floor() as i64)
+                                as usize;
                         let s1 = s0 + nb;
-                        let ass = layered_sum(cum, 0, s0, sk, shapes, si, nb2, layers, false) + layered_sum(cum, 0, s1, sk, shapes, si, nb2, layers, false);
-                        let ps = layered_sum(cum, nb2 + 1, s0, sk, shapes, si, nb2, layers, false) + layered_sum(cum, nb2 + 1, s1, sk, shapes, si, nb2, layers, false);
-                        let nsum = layered_sum(cum, nb2 + 1, s0, sk, shapes, si, nb2, layers, true) + layered_sum(cum, nb2 + 1, s1, sk, shapes, si, nb2, layers, true);
+                        let ass = layered_sum(cum, 0, s0, sk, shapes, si, nb2, layers, false)
+                            + layered_sum(cum, 0, s1, sk, shapes, si, nb2, layers, false);
+                        let ps = layered_sum(cum, nb2 + 1, s0, sk, shapes, si, nb2, layers, false)
+                            + layered_sum(cum, nb2 + 1, s1, sk, shapes, si, nb2, layers, false);
+                        let nsum = layered_sum(cum, nb2 + 1, s0, sk, shapes, si, nb2, layers, true)
+                            + layered_sum(cum, nb2 + 1, s1, sk, shapes, si, nb2, layers, true);
                         let (qs, qps) = (nsum - ps * ps / c, -(pe + po) * ps / c);
-                        let (pa, pb, pq, pr, px) = (ap / rho2, ass / rho2, qp / rho2, qs / rho2, qps / rho2);
+                        let (pa, pb, pq, pr, px) =
+                            (ap / rho2, ass / rho2, qp / rho2, qs / rho2, qps / rho2);
                         let cu = 1e-6;
                         let pu = subspace_upper(pa, pb, pq, pr, px, 1.0) + logwp + cu;
                         let bu = subspace_upper(pa, pb, pq, pr, px, 1.0) + logwb + cu;
@@ -355,9 +422,13 @@ pub mod evidence_gpu {
                                 let (wp, wb) = (parameters[7 + ri * 3], parameters[8 + ri * 3]);
                                 let aa = pa + ratio * pb;
                                 let qq = pq + 2.0 * ratio * px + ratio * ratio * pr;
-                                let ep = positive_amplitude_evidence(aa, qq, tau_p) + wp.ln() + logwp;
+                                let ep =
+                                    positive_amplitude_evidence(aa, qq, tau_p) + wp.ln() + logwp;
                                 let diluted = positive_amplitude_evidence(aa, qq, tau_d);
-                                let eb = log_add(positive_amplitude_evidence(aa, qq, tau_b), diluted) + (0.25 * wb).ln() + logwb;
+                                let eb =
+                                    log_add(positive_amplitude_evidence(aa, qq, tau_b), diluted)
+                                        + (0.25 * wb).ln()
+                                        + logwb;
                                 lp = log_add(lp, ep);
                                 lb = log_add(lb, eb);
                                 if eb > component_best {
@@ -373,7 +444,8 @@ pub mod evidence_gpu {
                             }
                         }
                     }
-                    let (ba, bb, bq, br, bx) = (ae / rho2, ao / rho2, qe / rho2, qo / rho2, qeo / rho2);
+                    let (ba, bb, bq, br, bx) =
+                        (ae / rho2, ao / rho2, qe / rho2, qo / rho2, qeo / rho2);
                     let alias_mass = if k < nb2 / 8 { 0.0 } else { NEG_INF };
                     let raw_upper = subspace_upper(ba, bb, bq, br, bx, 1.0) + 1e-6 + alias_mass;
                     let upper = raw_upper + dlm;
@@ -395,7 +467,9 @@ pub mod evidence_gpu {
                             let aa = ba + ratio * bb;
                             let qq = bq + 2.0 * ratio * bx + ratio * ratio * br;
                             let diluted = positive_amplitude_evidence(aa, qq, tau_d);
-                            let eb = log_add(positive_amplitude_evidence(aa, qq, tau_b), diluted) + alias_mass + (0.25 / 7.0f64).ln();
+                            let eb = log_add(positive_amplitude_evidence(aa, qq, tau_b), diluted)
+                                + alias_mass
+                                + (0.25 / 7.0f64).ln();
                             lb = log_add(lb, eb);
                             if eb > component_best {
                                 sec_ratio = 0.0;
@@ -426,15 +500,37 @@ pub mod evidence_gpu {
                     }
                     let joint = lp;
                     let key = ((si * nd + di) as u64) * nb as u64 + jj as u64;
-                    let bj = valid && (joint > best_joint || (joint == best_joint && key < joint_key));
-                    let bs = valid && (snr > best_signal || (snr == best_signal && key < signal_key));
+                    let bj =
+                        valid && (joint > best_joint || (joint == best_joint && key < joint_key));
+                    let bs =
+                        valid && (snr > best_signal || (snr == best_signal && key < signal_key));
                     if bj {
-                        j_out = [snr, depth, lp, lb, sec_ratio, sec_phase, odd_ratio, binary_multiple, joint];
+                        j_out = [
+                            snr,
+                            depth,
+                            lp,
+                            lb,
+                            sec_ratio,
+                            sec_phase,
+                            odd_ratio,
+                            binary_multiple,
+                            joint,
+                        ];
                         best_joint = joint;
                         joint_key = key;
                     }
                     if bs {
-                        s_out = [snr, depth, lp, lb, sec_ratio, sec_phase, odd_ratio, binary_multiple, joint];
+                        s_out = [
+                            snr,
+                            depth,
+                            lp,
+                            lb,
+                            sec_ratio,
+                            sec_phase,
+                            odd_ratio,
+                            binary_multiple,
+                            joint,
+                        ];
                         best_signal = snr;
                         signal_key = key;
                     }
@@ -442,7 +538,11 @@ pub mod evidence_gpu {
             }
         }
         for selection in 0..2 {
-            let (merit, key) = if selection == 0 { (best_joint, joint_key) } else { (best_signal, signal_key) };
+            let (merit, key) = if selection == 0 {
+                (best_joint, joint_key)
+            } else {
+                (best_signal, signal_key)
+            };
             unsafe {
                 S_VAL[lane] = merit;
                 S_KEY[lane] = key;
@@ -497,7 +597,8 @@ pub mod evidence_gpu {
                 unsafe {
                     *parts.get_unchecked_mut(out) = S_OUT[0];
                     *parts.get_unchecked_mut(out + 1) = S_OUT[1];
-                    *parts.get_unchecked_mut(out + 2) = if selection == 0 { vals[0] } else { best_signal };
+                    *parts.get_unchecked_mut(out + 2) =
+                        if selection == 0 { vals[0] } else { best_signal };
                     *parts.get_unchecked_mut(out + 3) = vals[1];
                     *parts.get_unchecked_mut(out + 4) = vals[2];
                     *parts.get_unchecked_mut(out + 5) = vals[3];
@@ -505,7 +606,8 @@ pub mod evidence_gpu {
                     *parts.get_unchecked_mut(out + 7) = vals[5];
                     *parts.get_unchecked_mut(out + 8) = vals[6];
                     *parts.get_unchecked_mut(out + 9) = vals[7];
-                    *parts.get_unchecked_mut(out + 10) = if selection == 0 { best_joint } else { vals[8] };
+                    *parts.get_unchecked_mut(out + 10) =
+                        if selection == 0 { best_joint } else { vals[8] };
                     *parts.get_unchecked_mut(out + 13) = omitted as f64;
                 }
             }
@@ -553,7 +655,11 @@ pub struct EvidenceRow {
 fn logsumexp(values: impl Iterator<Item = f64>) -> f64 {
     let v: Vec<f64> = values.collect();
     let high = v.iter().cloned().fold(NEG_INF, f64::max);
-    if high == NEG_INF { high } else { high + v.iter().map(|x| (x - high).exp()).sum::<f64>().ln() }
+    if high == NEG_INF {
+        high
+    } else {
+        high + v.iter().map(|x| (x - high).exp()).sum::<f64>().ln()
+    }
 }
 
 pub fn parameters(cfg: &SearchConfig) -> Vec<f64> {
@@ -584,8 +690,19 @@ pub fn parameters(cfg: &SearchConfig) -> Vec<f64> {
 
 /// Joint evidence at one trial period for one family. Returns the rows of
 /// the joint and amplitude winners (merged when identical).
-pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchConfig) -> Result<Vec<EvidenceRow>, Box<dyn std::error::Error>> {
-    let mut ds: Vec<(f64, f64)> = state.durations.iter().cloned().zip(state.rho.iter().cloned()).filter(|d| d.0 < period / 4.0).collect();
+pub fn compare_search(
+    gpu: &Gpu,
+    state: &FamilyState,
+    period: f64,
+    cfg: &SearchConfig,
+) -> Result<Vec<EvidenceRow>, Box<dyn std::error::Error>> {
+    let mut ds: Vec<(f64, f64)> = state
+        .durations
+        .iter()
+        .cloned()
+        .zip(state.rho.iter().cloned())
+        .filter(|d| d.0 < period / 4.0)
+        .collect();
     ds.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     if ds.is_empty() {
         return Ok(Vec::new());
@@ -602,12 +719,22 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
     let nb2 = 2 * nb;
     let scale = nb as f64 / period;
 
-    let mut dlm: Vec<f64> = rho.iter().map(|r| -0.5 * ((n as f64 - 1.0) * (r * r).ln() + ready.residual_energy / (r * r))).collect();
+    let mut dlm: Vec<f64> = rho
+        .iter()
+        .map(|r| -0.5 * ((n as f64 - 1.0) * (r * r).ln() + ready.residual_energy / (r * r)))
+        .collect();
     let dmax = dlm.iter().cloned().fold(NEG_INF, f64::max);
     dlm.iter_mut().for_each(|x| *x -= dmax);
 
-    let logits: Vec<(f64, f64)> = cfg.ingress_fractions.iter().map(|&i| (-4.0 * i, 2.0 * i)).collect();
-    let (lp0, lb0) = (logsumexp(logits.iter().map(|l| l.0)), logsumexp(logits.iter().map(|l| l.1)));
+    let logits: Vec<(f64, f64)> = cfg
+        .ingress_fractions
+        .iter()
+        .map(|&i| (-4.0 * i, 2.0 * i))
+        .collect();
+    let (lp0, lb0) = (
+        logsumexp(logits.iter().map(|l| l.0)),
+        logsumexp(logits.iter().map(|l| l.1)),
+    );
     let shape_priors: Vec<f64> = logits.iter().flat_map(|l| [l.0 - lp0, l.1 - lb0]).collect();
     let mut shapes = Vec::with_capacity(ns * layers * 3);
     for &ing in &cfg.ingress_fractions {
@@ -636,7 +763,10 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
             let ks = (k + 0.5).floor().max(1.0);
             let shift = (phases[o] * nb as f64 + 0.5).floor();
             let start = shift + ((k - ks) / 2.0).floor();
-            let valid = k < (nb / 4) as f64 && ks < (nb / 2) as f64 && start >= k && start + ks <= nb as f64;
+            let valid = k < (nb / 4) as f64
+                && ks < (nb / 2) as f64
+                && start >= k
+                && start + ks <= nb as f64;
             if valid {
                 lp_bank[di * NORB + o] = logw[o];
                 lb_bank[di * NORB + o] = logw[o];
@@ -649,7 +779,12 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
     let mut orbit = Vec::with_capacity(nd * NORB * 4);
     for di in 0..nd {
         for o in 0..NORB {
-            orbit.extend([phases[o], 1.0, lp_bank[di * NORB + o] + norm_p, lb_bank[di * NORB + o] + norm_b]);
+            orbit.extend([
+                phases[o],
+                1.0,
+                lp_bank[di * NORB + o] + norm_p,
+                lb_bank[di * NORB + o] + norm_b,
+            ]);
         }
     }
 
@@ -669,11 +804,38 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
     let module = &gpu.evidence;
     // SAFETY: grid shapes match each kernel's indexing and every buffer covers the kernel's accesses.
     unsafe {
-        module.fold_two(stream, LaunchConfig { grid_dim: ((n as u32).div_ceil(FOLD_BLOCK), 1, 1), block_dim: (FOLD_BLOCK, 1, 1), shared_mem_bytes: 0 }, &dev.time, &dev.fields, scale, &folded, n as u32, nb2 as u32)?;
-        module.prefix_fields(stream, LaunchConfig { grid_dim: (NF as u32, 1, 1), block_dim: (CUM_BLOCK as u32, 1, 1), shared_mem_bytes: 0 }, &folded, &mut cum, nb2 as u32)?;
+        module.fold_two(
+            stream,
+            LaunchConfig {
+                grid_dim: ((n as u32).div_ceil(FOLD_BLOCK), 1, 1),
+                block_dim: (FOLD_BLOCK, 1, 1),
+                shared_mem_bytes: 0,
+            },
+            &dev.time,
+            &dev.fields,
+            scale,
+            &folded,
+            n as u32,
+            nb2 as u32,
+        )?;
+        module.prefix_fields(
+            stream,
+            LaunchConfig {
+                grid_dim: (NF as u32, 1, 1),
+                block_dim: (CUM_BLOCK as u32, 1, 1),
+                shared_mem_bytes: 0,
+            },
+            &folded,
+            &mut cum,
+            nb2 as u32,
+        )?;
         module.comparison_screen(
             stream,
-            LaunchConfig { grid_dim: (tiles as u32, 1, 1), block_dim: (EV_TILE as u32, 1, 1), shared_mem_bytes: 0 },
+            LaunchConfig {
+                grid_dim: (tiles as u32, 1, 1),
+                block_dim: (EV_TILE as u32, 1, 1),
+                shared_mem_bytes: 0,
+            },
             &cum,
             scale,
             &d_dur,
@@ -696,16 +858,26 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
     if !(maximum >= cfg.threshold * (1.0 - 1e-12)) {
         return Ok(Vec::new());
     }
-    let winner = (0..tiles).max_by(|&a, &b| screen[a * 4 + 1].partial_cmp(&screen[b * 4 + 1]).unwrap()).unwrap();
+    let winner = (0..tiles)
+        .max_by(|&a, &b| screen[a * 4 + 1].partial_cmp(&screen[b * 4 + 1]).unwrap())
+        .unwrap();
     let pilot_key = screen[winner * 4 + 3];
-    let margin = if cfg.evidence_rtol > 0.0 { cfg.evidence_rtol.ln() - (((NORB + 1) * nb * nd * ns) as f64).ln() } else { NEG_INF };
+    let margin = if cfg.evidence_rtol > 0.0 {
+        cfg.evidence_rtol.ln() - (((NORB + 1) * nb * nd * ns) as f64).ln()
+    } else {
+        NEG_INF
+    };
 
     let mut parts = DeviceBuffer::<f64>::zeroed(stream, tiles * 2 * PART)?;
     let d_floors = DeviceBuffer::from_host(stream, &[NEG_INF, NEG_INF, pilot_key])?;
     unsafe {
         module.joint_tiles(
             stream,
-            LaunchConfig { grid_dim: (1, 1, 1), block_dim: (EV_TILE as u32, 1, 1), shared_mem_bytes: 0 },
+            LaunchConfig {
+                grid_dim: (1, 1, 1),
+                block_dim: (EV_TILE as u32, 1, 1),
+                shared_mem_bytes: 0,
+            },
             &cum,
             scale,
             &d_dur,
@@ -733,7 +905,11 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
     unsafe {
         module.joint_tiles(
             stream,
-            LaunchConfig { grid_dim: (tiles as u32, 1, 1), block_dim: (EV_TILE as u32, 1, 1), shared_mem_bytes: 0 },
+            LaunchConfig {
+                grid_dim: (tiles as u32, 1, 1),
+                block_dim: (EV_TILE as u32, 1, 1),
+                shared_mem_bytes: 0,
+            },
             &cum,
             scale,
             &d_dur,
@@ -757,14 +933,22 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
     }
     let parts = parts.to_host_vec(stream)?;
 
-    let in_bank: Vec<bool> = durations.iter().map(|d| (d * scale + 0.5).floor().max(1.0) < (nb / 4) as f64).collect();
+    let in_bank: Vec<bool> = durations
+        .iter()
+        .map(|d| (d * scale + 0.5).floor().max(1.0) < (nb / 4) as f64)
+        .collect();
     let log_mass = (nb as f64).ln() + logsumexp((0..nd).filter(|&i| in_bank[i]).map(|i| dlm[i]));
     let mut rows = Vec::new();
     for selection in 0..2 {
         let value = |t: usize, i: usize| parts[((t * 2 + selection) * PART) + i];
         let maximum = (0..tiles).map(|t| value(t, 1)).fold(NEG_INF, f64::max);
-        let key = (0..tiles).filter(|&t| value(t, 1) == maximum).map(|t| value(t, 0)).fold(f64::INFINITY, f64::min);
-        let tile = (0..tiles).find(|&t| value(t, 1) == maximum && value(t, 0) == key).unwrap_or(0);
+        let key = (0..tiles)
+            .filter(|&t| value(t, 1) == maximum)
+            .map(|t| value(t, 0))
+            .fold(f64::INFINITY, f64::min);
+        let tile = (0..tiles)
+            .find(|&t| value(t, 1) == maximum && value(t, 0) == key)
+            .unwrap_or(0);
         let lp = logsumexp((0..tiles).map(|t| value(t, 11))) - log_mass;
         let lb = logsumexp((0..tiles).map(|t| value(t, 12))) - log_mass;
         let joint = params[3] + lp - log_add(params[5], params[4] + lb);
@@ -773,7 +957,11 @@ pub fn compare_search(gpu: &Gpu, state: &FamilyState, period: f64, cfg: &SearchC
         let di = ((decoded / nb as u64) % nd as u64) as usize;
         let si = (decoded / (nb as u64 * nd as u64)) as usize;
         let width = (durations[di] * scale + 0.5).floor().max(1.0);
-        let snr = if maximum > NEG_INF { value(tile, 2) } else { NEG_INF };
+        let snr = if maximum > NEG_INF {
+            value(tile, 2)
+        } else {
+            NEG_INF
+        };
         rows.push(EvidenceRow {
             period,
             epoch: (j as f64 + width / 2.0) / scale + ready.origin,

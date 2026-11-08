@@ -63,12 +63,20 @@ fn overlap(a: &[bool], b: &[bool]) -> f64 {
 }
 
 /// Number of distinct transit epochs with at least `minimum_points` in-transit observations.
-pub fn event_count(time: &[f64], period: f64, epoch: f64, duration: f64, minimum_points: usize) -> usize {
+pub fn event_count(
+    time: &[f64],
+    period: f64,
+    epoch: f64,
+    duration: f64,
+    minimum_points: usize,
+) -> usize {
     let inside = transit_mask(time, period, epoch, duration, 0.0);
     let mut counts: BTreeMap<i64, usize> = BTreeMap::new();
     for (i, &t) in time.iter().enumerate() {
         if inside[i] {
-            *counts.entry(((t - epoch) / period).round() as i64).or_insert(0) += 1;
+            *counts
+                .entry(((t - epoch) / period).round() as i64)
+                .or_insert(0) += 1;
         }
     }
     counts.values().filter(|&&c| c >= minimum_points).count()
@@ -111,7 +119,11 @@ struct Rescorer<'a> {
 }
 
 impl<'a> Rescorer<'a> {
-    fn new(gpu: &'a Gpu, states: &[FamilyState], time_all: &[f64]) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(
+        gpu: &'a Gpu,
+        states: &[FamilyState],
+        time_all: &[f64],
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let stream = &gpu.stream;
         let mut families = Vec::new();
         for s in states {
@@ -119,25 +131,50 @@ impl<'a> Rescorer<'a> {
             let mut fields = Vec::with_capacity(2 * r.time.len());
             fields.extend_from_slice(&r.v);
             fields.extend_from_slice(&r.w);
-            families.push(FamilyDevice { time: DeviceBuffer::from_host(stream, &r.time)?, fields: DeviceBuffer::from_host(stream, &fields)?, origin: r.origin, n: r.time.len() });
+            families.push(FamilyDevice {
+                time: DeviceBuffer::from_host(stream, &r.time)?,
+                fields: DeviceBuffer::from_host(stream, &fields)?,
+                origin: r.origin,
+                n: r.time.len(),
+            });
         }
-        Ok(Self { gpu, families, time_all: DeviceBuffer::from_host(stream, time_all)? })
+        Ok(Self {
+            gpu,
+            families,
+            time_all: DeviceBuffer::from_host(stream, time_all)?,
+        })
     }
 
     /// (score, required threshold) of every row in `indices`.
-    fn evaluate(&self, indices: &[usize], table: &[Row], family: &[usize], states: &[FamilyState], pos: &[Vec<usize>], excluded: &[bool], threshold: f64) -> Result<Vec<(f64, f64)>, Box<dyn std::error::Error>> {
+    fn evaluate(
+        &self,
+        indices: &[usize],
+        table: &[Row],
+        family: &[usize],
+        states: &[FamilyState],
+        pos: &[Vec<usize>],
+        excluded: &[bool],
+        threshold: f64,
+    ) -> Result<Vec<(f64, f64)>, Box<dyn std::error::Error>> {
         let stream = &self.gpu.stream;
         let mut out = vec![(f64::NEG_INFINITY, threshold); indices.len()];
         let excluded_all: Vec<u8> = excluded.iter().map(|&e| e as u8).collect();
         let d_excluded_all = DeviceBuffer::from_host(stream, &excluded_all)?;
-        let rows_all: Vec<f64> = indices.iter().flat_map(|&i| [table[i].period, table[i].epoch, table[i].duration]).collect();
+        let rows_all: Vec<f64> = indices
+            .iter()
+            .flat_map(|&i| [table[i].period, table[i].epoch, table[i].duration])
+            .collect();
         let d_rows_all = DeviceBuffer::from_host(stream, &rows_all)?;
         let mut d_counts = DeviceBuffer::<u32>::zeroed(stream, 2 * indices.len())?;
         // SAFETY: one block per row; every buffer covers the kernel's accesses.
         unsafe {
             self.gpu.module.count_rows(
                 stream,
-                LaunchConfig { grid_dim: (indices.len() as u32, 1, 1), block_dim: (RESCORE_BLOCK as u32, 1, 1), shared_mem_bytes: 0 },
+                LaunchConfig {
+                    grid_dim: (indices.len() as u32, 1, 1),
+                    block_dim: (RESCORE_BLOCK as u32, 1, 1),
+                    shared_mem_bytes: 0,
+                },
                 &self.time_all,
                 &d_excluded_all,
                 &d_rows_all,
@@ -152,19 +189,31 @@ impl<'a> Rescorer<'a> {
             out[slot].1 = (threshold * unshared.sqrt()).max(0.5 * threshold);
         }
         for (k, dev) in self.families.iter().enumerate() {
-            let slots: Vec<usize> = (0..indices.len()).filter(|&s| family[indices[s]] == k).collect();
+            let slots: Vec<usize> = (0..indices.len())
+                .filter(|&s| family[indices[s]] == k)
+                .collect();
             if slots.is_empty() {
                 continue;
             }
             let excluded_family: Vec<u8> = pos[k].iter().map(|&p| excluded[p] as u8).collect();
             let d_excluded = DeviceBuffer::from_host(stream, &excluded_family)?;
-            let rows: Vec<f64> = slots.iter().flat_map(|&s| { let r = &table[indices[s]]; [r.period, r.epoch, r.duration] }).collect();
+            let rows: Vec<f64> = slots
+                .iter()
+                .flat_map(|&s| {
+                    let r = &table[indices[s]];
+                    [r.period, r.epoch, r.duration]
+                })
+                .collect();
             let d_rows = DeviceBuffer::from_host(stream, &rows)?;
             let mut d_sums = DeviceBuffer::<f64>::zeroed(stream, 3 * slots.len())?;
             unsafe {
                 self.gpu.module.rescore_rows(
                     stream,
-                    LaunchConfig { grid_dim: (slots.len() as u32, 1, 1), block_dim: (RESCORE_BLOCK as u32, 1, 1), shared_mem_bytes: 0 },
+                    LaunchConfig {
+                        grid_dim: (slots.len() as u32, 1, 1),
+                        block_dim: (RESCORE_BLOCK as u32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
                     &dev.time,
                     &dev.fields,
                     &d_excluded,
@@ -178,7 +227,11 @@ impl<'a> Rescorer<'a> {
             for (m, &s) in slots.iter().enumerate() {
                 let (a, hp, norm) = (sums[m * 3], sums[m * 3 + 1], sums[m * 3 + 2]);
                 let q = norm - hp * hp / states[k].ready.baseline_norm;
-                out[s].0 = if q > 0.0 && a > 0.0 { (a / nearest_rho(&states[k], table[indices[s]].duration)) / q.max(1e-300).sqrt() } else { f64::NEG_INFINITY };
+                out[s].0 = if q > 0.0 && a > 0.0 {
+                    (a / nearest_rho(&states[k], table[indices[s]].duration)) / q.max(1e-300).sqrt()
+                } else {
+                    f64::NEG_INFINITY
+                };
             }
         }
         Ok(out)
@@ -187,7 +240,12 @@ impl<'a> Rescorer<'a> {
 
 /// Box statistic after removing the strongest individual event; returns
 /// (statistic, number of events with data).
-fn without_strongest_event(state: &FamilyState, pos: &[usize], row: &Row, excluded: &[bool]) -> (f64, usize) {
+fn without_strongest_event(
+    state: &FamilyState,
+    pos: &[usize],
+    row: &Row,
+    excluded: &[bool],
+) -> (f64, usize) {
     let r = &state.ready;
     let mut sums: BTreeMap<i64, (f64, f64, f64)> = BTreeMap::new();
     let mut members: Vec<(usize, i64)> = Vec::new();
@@ -212,8 +270,16 @@ fn without_strongest_event(state: &FamilyState, pos: &[usize], row: &Row, exclud
     let rho = nearest_rho(state, row.duration);
     let strongest = sums
         .iter()
-        .map(|(&c, &(a, hp, w))| (c, a / rho / (w - hp * hp / r.baseline_norm).max(1e-300).sqrt()))
-        .fold((0i64, f64::NEG_INFINITY), |acc, x| if x.1 > acc.1 { x } else { acc })
+        .map(|(&c, &(a, hp, w))| {
+            (
+                c,
+                a / rho / (w - hp * hp / r.baseline_norm).max(1e-300).sqrt(),
+            )
+        })
+        .fold(
+            (0i64, f64::NEG_INFINITY),
+            |acc, x| if x.1 > acc.1 { x } else { acc },
+        )
         .0;
     let (mut a, mut hp, mut norm) = (0.0, 0.0, 0.0);
     for &(i, cycle) in &members {
@@ -224,7 +290,11 @@ fn without_strongest_event(state: &FamilyState, pos: &[usize], row: &Row, exclud
         }
     }
     let q = norm - hp * hp / r.baseline_norm;
-    let value = if q > 0.0 && a > 0.0 { a / rho / q.max(1e-300).sqrt() } else { f64::NEG_INFINITY };
+    let value = if q > 0.0 && a > 0.0 {
+        a / rho / q.max(1e-300).sqrt()
+    } else {
+        f64::NEG_INFINITY
+    };
     (value, sums.len())
 }
 
@@ -254,11 +324,24 @@ pub fn select_peaks(
     let mut masks: Vec<Vec<bool>> = taken.to_vec();
     let mut excluded = excluded_in.to_vec();
     if table.is_empty() {
-        return Ok(Selection { accepted, masks, excluded });
+        return Ok(Selection {
+            accepted,
+            masks,
+            excluded,
+        });
     }
     let pos: Vec<Vec<usize>> = states.iter().map(|s| positions(s, time_all)).collect();
     let rescorer = Rescorer::new(gpu, states, time_all)?;
-    let mut remaining: Vec<f64> = table.iter().map(|r| if r.score.is_finite() && r.score >= threshold { r.score } else { f64::NEG_INFINITY }).collect();
+    let mut remaining: Vec<f64> = table
+        .iter()
+        .map(|r| {
+            if r.score.is_finite() && r.score >= threshold {
+                r.score
+            } else {
+                f64::NEG_INFINITY
+            }
+        })
+        .collect();
     let mut fresh = vec![!excluded.iter().any(|&x| x); table.len()];
 
     // Candidates ordered by score with lazy invalidation: an entry whose
@@ -275,15 +358,25 @@ pub fn select_peaks(
     }
     impl Ord for Entry {
         fn cmp(&self, other: &Self) -> Ordering {
-            self.0.partial_cmp(&other.0).unwrap_or(Ordering::Equal).then(other.1.cmp(&self.1))
+            self.0
+                .partial_cmp(&other.0)
+                .unwrap_or(Ordering::Equal)
+                .then(other.1.cmp(&self.1))
         }
     }
-    let mut heap: BinaryHeap<Entry> = (0..table.len()).filter(|&i| remaining[i].is_finite()).map(|i| Entry(remaining[i], i)).collect();
+    let mut heap: BinaryHeap<Entry> = (0..table.len())
+        .filter(|&i| remaining[i].is_finite())
+        .map(|i| Entry(remaining[i], i))
+        .collect();
     // Lazy rescoring from the top of the heap: stale entries carry their
     // previous score, which bounds the rescored value, so rows below the best
     // fresh entry are never rescored.
     let block = 8192;
-    let refresh = |remaining: &mut Vec<f64>, fresh: &mut Vec<bool>, heap: &mut BinaryHeap<Entry>, excluded: &[bool]| -> Result<(), Box<dyn std::error::Error>> {
+    let refresh = |remaining: &mut Vec<f64>,
+                   fresh: &mut Vec<bool>,
+                   heap: &mut BinaryHeap<Entry>,
+                   excluded: &[bool]|
+     -> Result<(), Box<dyn std::error::Error>> {
         let mut stale = Vec::new();
         let mut kept = Vec::new();
         while let Some(Entry(v, i)) = heap.pop() {
@@ -306,7 +399,11 @@ pub fn select_peaks(
         let values = rescorer.evaluate(&stale, table, family, states, &pos, excluded, threshold)?;
         for (m, &i) in stale.iter().enumerate() {
             let (rescored, required) = values[m];
-            remaining[i] = if rescored >= required { rescored } else { f64::NEG_INFINITY };
+            remaining[i] = if rescored >= required {
+                rescored
+            } else {
+                f64::NEG_INFINITY
+            };
             fresh[i] = true;
             if remaining[i].is_finite() {
                 heap.push(Entry(remaining[i], i));
@@ -382,26 +479,50 @@ pub fn select_peaks(
         fresh.iter_mut().for_each(|f| *f = false);
         refresh(&mut remaining, &mut fresh, &mut heap, &excluded)?;
     }
-    Ok(Selection { accepted, masks, excluded })
+    Ok(Selection {
+        accepted,
+        masks,
+        excluded,
+    })
 }
 
 /// Greedy suppression of single-event templates overlapping accepted ephemerides.
-pub fn select_events(table: &[Row], time: &[f64], threshold: f64, limit: usize, taken: &[Vec<bool>]) -> Vec<SingleEvent> {
+pub fn select_events(
+    table: &[Row],
+    time: &[f64],
+    threshold: f64,
+    limit: usize,
+    taken: &[Vec<bool>],
+) -> Vec<SingleEvent> {
     let mut output = Vec::new();
     let mut masks: Vec<Vec<bool>> = taken.to_vec();
     if table.is_empty() {
         return output;
     }
-    let mut remaining: Vec<f64> = table.iter().map(|r| if r.score.is_finite() && r.score >= threshold { r.score } else { f64::NEG_INFINITY }).collect();
+    let mut remaining: Vec<f64> = table
+        .iter()
+        .map(|r| {
+            if r.score.is_finite() && r.score >= threshold {
+                r.score
+            } else {
+                f64::NEG_INFINITY
+            }
+        })
+        .collect();
     let mut iterations = 0;
     while output.len() < limit && iterations < 5000 {
         iterations += 1;
-        let i = (0..table.len()).max_by(|&a, &b| remaining[a].partial_cmp(&remaining[b]).unwrap()).unwrap();
+        let i = (0..table.len())
+            .max_by(|&a, &b| remaining[a].partial_cmp(&remaining[b]).unwrap())
+            .unwrap();
         if !remaining[i].is_finite() {
             break;
         }
         let row = table[i];
-        let inside: Vec<bool> = time.iter().map(|&t| (t - row.epoch).abs() <= row.duration / 2.0).collect();
+        let inside: Vec<bool> = time
+            .iter()
+            .map(|&t| (t - row.epoch).abs() <= row.duration / 2.0)
+            .collect();
         for j in 0..table.len() {
             if (table[j].epoch - row.epoch).abs() <= (table[j].duration + row.duration) / 2.0 {
                 remaining[j] = f64::NEG_INFINITY;
@@ -411,7 +532,11 @@ pub fn select_events(table: &[Row], time: &[f64], threshold: f64, limit: usize, 
         if points < 3 || masks.iter().any(|other| overlap(&inside, other) >= 0.5) {
             continue;
         }
-        masks.push(time.iter().map(|&t| (t - row.epoch).abs() <= 0.75 * row.duration).collect());
+        masks.push(
+            time.iter()
+                .map(|&t| (t - row.epoch).abs() <= 0.75 * row.duration)
+                .collect(),
+        );
         output.push(SingleEvent {
             epoch_bjd: row.epoch,
             duration_hours: 24.0 * row.duration,

@@ -8,7 +8,11 @@ pub fn median(v: &[f64]) -> f64 {
     }
     x.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let n = x.len();
-    if n % 2 == 1 { x[n / 2] } else { 0.5 * (x[n / 2 - 1] + x[n / 2]) }
+    if n % 2 == 1 {
+        x[n / 2]
+    } else {
+        0.5 * (x[n / 2 - 1] + x[n / 2])
+    }
 }
 
 pub fn mad(v: &[f64]) -> f64 {
@@ -17,7 +21,11 @@ pub fn mad(v: &[f64]) -> f64 {
 }
 
 pub fn mean(v: &[f64]) -> f64 {
-    if v.is_empty() { f64::NAN } else { v.iter().sum::<f64>() / v.len() as f64 }
+    if v.is_empty() {
+        f64::NAN
+    } else {
+        v.iter().sum::<f64>() / v.len() as f64
+    }
 }
 
 pub fn std(v: &[f64], ddof: usize) -> f64 {
@@ -47,22 +55,56 @@ pub fn norm_isf(p: f64) -> f64 {
 
 pub fn norm_ppf(p: f64) -> f64 {
     if !(p > 0.0 && p < 1.0) {
-        return if p <= 0.0 { f64::NEG_INFINITY } else if p >= 1.0 { f64::INFINITY } else { f64::NAN };
+        return if p <= 0.0 {
+            f64::NEG_INFINITY
+        } else if p >= 1.0 {
+            f64::INFINITY
+        } else {
+            f64::NAN
+        };
     }
-    const A: [f64; 6] = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
-    const B: [f64; 5] = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01, -1.328068155288572e+01];
-    const C: [f64; 6] = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00];
-    const D: [f64; 4] = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00];
+    const A: [f64; 6] = [
+        -3.969683028665376e+01,
+        2.209460984245205e+02,
+        -2.759285104469687e+02,
+        1.383577518672690e+02,
+        -3.066479806614716e+01,
+        2.506628277459239e+00,
+    ];
+    const B: [f64; 5] = [
+        -5.447609879822406e+01,
+        1.615858368580409e+02,
+        -1.556989798598866e+02,
+        6.680131188771972e+01,
+        -1.328068155288572e+01,
+    ];
+    const C: [f64; 6] = [
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e+00,
+        -2.549732539343734e+00,
+        4.374664141464968e+00,
+        2.938163982698783e+00,
+    ];
+    const D: [f64; 4] = [
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e+00,
+        3.754408661907416e+00,
+    ];
     let x = if p < 0.02425 {
         let q = (-2.0 * p.ln()).sqrt();
-        (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5]) / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
+        (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
+            / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
     } else if p > 1.0 - 0.02425 {
         let q = (-2.0 * (1.0 - p).ln()).sqrt();
-        -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5]) / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
+        -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
+            / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
     } else {
         let q = p - 0.5;
         let r = q * q;
-        (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
+        (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
+            / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
     };
     // Halley refinement with the complementary error function.
     let e = 0.5 * crate::search::math::erfc(-x / std::f64::consts::SQRT_2) - p;
@@ -101,22 +143,33 @@ pub fn lstsq(design: &[Vec<f64>], y: &[f64]) -> Option<(Vec<f64>, Vec<Vec<f64>>,
         aty[i] = (0..n).map(|r| design[i][r] * y[r]).sum();
     }
     let inv = invert(&ata)?;
-    let coef: Vec<f64> = (0..k).map(|i| (0..k).map(|j| inv[i][j] * aty[j]).sum()).collect();
-    let resid: Vec<f64> = (0..n).map(|r| y[r] - (0..k).map(|i| coef[i] * design[i][r]).sum::<f64>()).collect();
+    let coef: Vec<f64> = (0..k)
+        .map(|i| (0..k).map(|j| inv[i][j] * aty[j]).sum())
+        .collect();
+    let resid: Vec<f64> = (0..n)
+        .map(|r| y[r] - (0..k).map(|i| coef[i] * design[i][r]).sum::<f64>())
+        .collect();
     let dof = n.saturating_sub(k).max(1) as f64;
     let s2 = resid.iter().map(|r| r * r).sum::<f64>() / dof;
-    let cov = inv.iter().map(|row| row.iter().map(|v| v * s2).collect()).collect();
+    let cov = inv
+        .iter()
+        .map(|row| row.iter().map(|v| v * s2).collect())
+        .collect();
     Some((coef, cov, resid))
 }
 
 /// Gauss-Jordan inverse of a small matrix.
 pub fn invert(m: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
     let n = m.len();
-    let mut a: Vec<Vec<f64>> = m.iter().enumerate().map(|(i, row)| {
-        let mut r = row.clone();
-        r.extend((0..n).map(|j| if i == j { 1.0 } else { 0.0 }));
-        r
-    }).collect();
+    let mut a: Vec<Vec<f64>> = m
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let mut r = row.clone();
+            r.extend((0..n).map(|j| if i == j { 1.0 } else { 0.0 }));
+            r
+        })
+        .collect();
     if a.iter().flatten().any(|v| !v.is_finite()) {
         return None;
     }
@@ -147,7 +200,12 @@ pub fn invert(m: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
 /// Bounded Levenberg-Marquardt least squares with a forward-difference
 /// Jacobian. `residuals(p)` returns the residual vector; parameters are kept
 /// inside [lower, upper]. Returns (parameters, residuals, jacobian).
-pub fn least_squares<F: Fn(&[f64]) -> Vec<f64>>(residuals: F, start: &[f64], lower: &[f64], upper: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
+pub fn least_squares<F: Fn(&[f64]) -> Vec<f64>>(
+    residuals: F,
+    start: &[f64],
+    lower: &[f64],
+    upper: &[f64],
+) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
     let k = start.len();
     let clamp = |p: &mut Vec<f64>| {
         for i in 0..k {
@@ -163,7 +221,11 @@ pub fn least_squares<F: Fn(&[f64]) -> Vec<f64>>(residuals: F, start: &[f64], low
         (0..k)
             .map(|i| {
                 let span = upper[i] - lower[i];
-                let scale = if span.is_finite() { 1e-3 * span.abs() } else { 1e-6 };
+                let scale = if span.is_finite() {
+                    1e-3 * span.abs()
+                } else {
+                    1e-6
+                };
                 let h = 1e-6 * p[i].abs().max(scale).max(1e-9);
                 let mut q = p.to_vec();
                 q[i] = (q[i] + h).min(upper[i]);
@@ -242,7 +304,15 @@ pub fn fit_errors_unit(jac: &[Vec<f64>]) -> Vec<f64> {
         }
     }
     match invert(&jtj) {
-        Some(inv) => (0..k).map(|i| if inv[i][i] > 0.0 { inv[i][i].sqrt() } else { f64::NAN }).collect(),
+        Some(inv) => (0..k)
+            .map(|i| {
+                if inv[i][i] > 0.0 {
+                    inv[i][i].sqrt()
+                } else {
+                    f64::NAN
+                }
+            })
+            .collect(),
         None => vec![f64::NAN; k],
     }
 }
@@ -259,7 +329,15 @@ pub fn fit_errors(residuals: &[f64], jac: &[Vec<f64>]) -> Vec<f64> {
     }
     let scale = residuals.iter().map(|x| x * x).sum::<f64>() / n.saturating_sub(k).max(1) as f64;
     match invert(&jtj) {
-        Some(inv) => (0..k).map(|i| if inv[i][i] > 0.0 { (inv[i][i] * scale).sqrt() } else { f64::NAN }).collect(),
+        Some(inv) => (0..k)
+            .map(|i| {
+                if inv[i][i] > 0.0 {
+                    (inv[i][i] * scale).sqrt()
+                } else {
+                    f64::NAN
+                }
+            })
+            .collect(),
         None => vec![f64::NAN; k],
     }
 }
@@ -301,8 +379,16 @@ mod tests {
     fn levenberg_marquardt_fits_a_line() {
         let x: Vec<f64> = (0..50).map(|i| i as f64 / 10.0).collect();
         let y: Vec<f64> = x.iter().map(|v| 3.0 * v - 1.0).collect();
-        let (p, r, _) = least_squares(|p| x.iter().zip(&y).map(|(a, b)| p[0] * a + p[1] - b).collect(), &[0.0, 0.0], &[-10.0, -10.0], &[10.0, 10.0]);
-        assert!((p[0] - 3.0).abs() < 1e-6 && (p[1] + 1.0).abs() < 1e-6, "{p:?}");
+        let (p, r, _) = least_squares(
+            |p| x.iter().zip(&y).map(|(a, b)| p[0] * a + p[1] - b).collect(),
+            &[0.0, 0.0],
+            &[-10.0, -10.0],
+            &[10.0, 10.0],
+        );
+        assert!(
+            (p[0] - 3.0).abs() < 1e-6 && (p[1] + 1.0).abs() < 1e-6,
+            "{p:?}"
+        );
         assert!(r.iter().all(|v| v.abs() < 1e-5));
     }
 }

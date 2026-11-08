@@ -2,12 +2,24 @@
 
 /// Logarithmic grid such that baseline * (P_next / P - 1) <= duration / oversample.
 /// The first and last values are exactly `minimum` and `maximum`.
-pub fn period_grid(minimum: f64, maximum: f64, baseline: f64, minimum_duration: f64, oversample: f64) -> Vec<f64> {
+pub fn period_grid(
+    minimum: f64,
+    maximum: f64,
+    baseline: f64,
+    minimum_duration: f64,
+    oversample: f64,
+) -> Vec<f64> {
     let log_step = (minimum_duration / (oversample * baseline)).ln_1p();
     let count = ((maximum / minimum).ln() / log_step).ceil() as usize + 1;
     let (a, b) = (minimum.ln(), maximum.ln());
     let mut grid: Vec<f64> = (0..count)
-        .map(|i| if count == 1 { a } else { a + (b - a) * (i as f64) / ((count - 1) as f64) })
+        .map(|i| {
+            if count == 1 {
+                a
+            } else {
+                a + (b - a) * (i as f64) / ((count - 1) as f64)
+            }
+        })
         .map(f64::exp)
         .collect();
     grid[0] = minimum;

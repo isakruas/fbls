@@ -2,12 +2,45 @@
 
 use serde_json::{Map, Value, json};
 
-pub const TIER_ORDER: [&str; 6] = ["strong", "candidate", "unconfirmed", "inconclusive", "rejected", "duplicate"];
+pub const TIER_ORDER: [&str; 6] = [
+    "strong",
+    "candidate",
+    "unconfirmed",
+    "inconclusive",
+    "rejected",
+    "duplicate",
+];
 /// Transits a periodic signal must show to be called periodic.
 pub const MIN_TRANSITS: usize = 3;
 
 pub const CTOI_COLUMNS: [&str; 27] = [
-    "TIC ID", "Transit Epoch (BJD)", "Transit Epoch (BJD) err", "Period (days)", "Period (days) Error", "Depth ppm", "Depth ppm Error", "Duration (hrs)", "Duration (hrs) Error", "Impact Param", "Impact Param Error", "Rad_p/Rad_s", "Rad_p/Rad_s Error", "a/Rad_s", "a/Rad_s Error", "Inclination (deg)", "Inclination (deg) Error", "Planet Radius (R_Earth)", "Planet Radius (R_Earth) Error", "Insolation (Earth Flux)", "Insolation (Earth Flux) Error", "Equilibrium Temp (K)", "Equilibrium Temp (K) Error", "Fitted Stellar Density (g/cm^3)", "Fitted Stellar Density (g/cm^3) Error", "User Disposition", "Notes",
+    "TIC ID",
+    "Transit Epoch (BJD)",
+    "Transit Epoch (BJD) err",
+    "Period (days)",
+    "Period (days) Error",
+    "Depth ppm",
+    "Depth ppm Error",
+    "Duration (hrs)",
+    "Duration (hrs) Error",
+    "Impact Param",
+    "Impact Param Error",
+    "Rad_p/Rad_s",
+    "Rad_p/Rad_s Error",
+    "a/Rad_s",
+    "a/Rad_s Error",
+    "Inclination (deg)",
+    "Inclination (deg) Error",
+    "Planet Radius (R_Earth)",
+    "Planet Radius (R_Earth) Error",
+    "Insolation (Earth Flux)",
+    "Insolation (Earth Flux) Error",
+    "Equilibrium Temp (K)",
+    "Equilibrium Temp (K) Error",
+    "Fitted Stellar Density (g/cm^3)",
+    "Fitted Stellar Density (g/cm^3) Error",
+    "User Disposition",
+    "Notes",
 ];
 
 /// Tier from vetting, model evidence and FPP; no learned classifier. A
@@ -31,7 +64,9 @@ pub fn tier(event: &Value) -> String {
         return format!("unconfirmed: fewer than {MIN_TRANSITS} transits");
     }
     let star = &m["star"];
-    if !(star["radius"].as_f64().is_some_and(|r| r > 0.0) && star["teff"].as_f64().is_some_and(|t| t > 0.0)) {
+    if !(star["radius"].as_f64().is_some_and(|r| r > 0.0)
+        && star["teff"].as_f64().is_some_and(|t| t > 0.0))
+    {
         return "candidate: no stellar parameters".into();
     }
     if let (Some(f), Some(nf)) = (fpp["fpp"].as_f64(), fpp["nfpp"].as_f64()) {
@@ -43,11 +78,18 @@ pub fn tier(event: &Value) -> String {
         }
         return "inconclusive".into();
     }
-    if preferred { "candidate: no FPP".into() } else { "inconclusive: binary-like evidence".into() }
+    if preferred {
+        "candidate: no FPP".into()
+    } else {
+        "inconclusive: binary-like evidence".into()
+    }
 }
 
 pub fn rank(label: &str) -> usize {
-    TIER_ORDER.iter().position(|o| label.starts_with(o)).unwrap_or(TIER_ORDER.len())
+    TIER_ORDER
+        .iter()
+        .position(|o| label.starts_with(o))
+        .unwrap_or(TIER_ORDER.len())
 }
 
 fn finite(v: &Value) -> Option<f64> {
@@ -65,7 +107,9 @@ pub fn ctoi_row(event: &Value, author: &str) -> Map<String, Value> {
     let snr = finite(&m["snr"]).or(finite(&peak["snr"])).unwrap_or(7.1);
     let periodic = event["search"] == "periodic";
     let baseline = finite(&event["baseline_days"]).or(period).unwrap_or(1.0);
-    let period_err = period.filter(|_| periodic).map(|p| p * (duration_h / 24.0) / (2.0 * baseline));
+    let period_err = period
+        .filter(|_| periodic)
+        .map(|p| p * (duration_h / 24.0) / (2.0 * baseline));
     let epoch_err = (duration_h / 24.0) / snr.max(1.0);
     let depth = finite(&m["depth_ppm"]);
     let depth_err = finite(&m["depth_err_ppm"]);
@@ -82,11 +126,24 @@ pub fn ctoi_row(event: &Value, author: &str) -> Map<String, Value> {
     let g = &m["geometry"];
     let reliable = g["reliable"].as_bool().unwrap_or(false);
     let (a_over_r, a_over_r_err) = if reliable {
-        (finite(&g["a_over_rstar_fit"]), finite(&g["a_over_rstar_fit_err"]))
+        (
+            finite(&g["a_over_rstar_fit"]),
+            finite(&g["a_over_rstar_fit_err"]),
+        )
     } else {
-        (finite(&m["a_over_rstar"]), finite(&m["a_over_rstar"]).map(|a| 0.1 * a))
+        (
+            finite(&m["a_over_rstar"]),
+            finite(&m["a_over_rstar"]).map(|a| 0.1 * a),
+        )
     };
-    let flags: Vec<String> = m["flags"].as_object().map(|o| o.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect()).unwrap_or_default();
+    let flags: Vec<String> = m["flags"]
+        .as_object()
+        .map(|o| {
+            o.iter()
+                .map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or("")))
+                .collect()
+        })
+        .unwrap_or_default();
     let fpp = &event["fpp"];
     let notes = format!(
         "FBLS blind search ({}); detector SNR {:.1}, {} transits; tier {}; flags {}; FPP {}; NFPP {}; {}{author}",
@@ -94,10 +151,24 @@ pub fn ctoi_row(event: &Value, author: &str) -> Map<String, Value> {
         finite(&peak["snr"]).unwrap_or(0.0),
         m["transits"].as_u64().unwrap_or(0),
         event["tier"].as_str().unwrap_or(""),
-        if flags.is_empty() { "none".to_string() } else { flags.join(";") },
-        fpp["fpp"].as_f64().map(|v| v.to_string()).unwrap_or("None".into()),
-        fpp["nfpp"].as_f64().map(|v| v.to_string()).unwrap_or("None".into()),
-        if reliable { "geometry from trapezoid fit, circular orbit; " } else { "a/Rs from TIC density; " }
+        if flags.is_empty() {
+            "none".to_string()
+        } else {
+            flags.join(";")
+        },
+        fpp["fpp"]
+            .as_f64()
+            .map(|v| v.to_string())
+            .unwrap_or("None".into()),
+        fpp["nfpp"]
+            .as_f64()
+            .map(|v| v.to_string())
+            .unwrap_or("None".into()),
+        if reliable {
+            "geometry from trapezoid fit, circular orbit; "
+        } else {
+            "a/Rs from TIC density; "
+        }
     );
     let duration_err = finite(&m["fitted_duration_err_hours"]).unwrap_or(duration_h * 0.25);
     let mut row = Map::new();
@@ -127,8 +198,14 @@ pub fn ctoi_row(event: &Value, author: &str) -> Map<String, Value> {
     put("Insolation (Earth Flux) Error", g["insolation_err"].clone());
     put("Equilibrium Temp (K)", g["teq_k"].clone());
     put("Equilibrium Temp (K) Error", g["teq_err"].clone());
-    put("Fitted Stellar Density (g/cm^3)", g["fitted_density_gcc"].clone());
-    put("Fitted Stellar Density (g/cm^3) Error", g["fitted_density_err"].clone());
+    put(
+        "Fitted Stellar Density (g/cm^3)",
+        g["fitted_density_gcc"].clone(),
+    );
+    put(
+        "Fitted Stellar Density (g/cm^3) Error",
+        g["fitted_density_err"].clone(),
+    );
     put("User Disposition", json!("PC"));
     put("Notes", json!(notes));
     row
@@ -144,15 +221,29 @@ pub fn csv_cell(v: &Value) -> String {
                 s.clone()
             }
         }
-        Value::Bool(b) => if *b { "True".into() } else { "False".into() },
+        Value::Bool(b) => {
+            if *b {
+                "True".into()
+            } else {
+                "False".into()
+            }
+        }
         other => other.to_string(),
     }
 }
 
-pub fn write_csv(path: &std::path::Path, columns: &[&str], rows: &[Map<String, Value>]) -> Result<(), String> {
+pub fn write_csv(
+    path: &std::path::Path,
+    columns: &[&str],
+    rows: &[Map<String, Value>],
+) -> Result<(), String> {
     let mut text = columns.join(",") + "\n";
     for r in rows {
-        text += &columns.iter().map(|c| csv_cell(r.get(*c).unwrap_or(&Value::Null))).collect::<Vec<_>>().join(",");
+        text += &columns
+            .iter()
+            .map(|c| csv_cell(r.get(*c).unwrap_or(&Value::Null)))
+            .collect::<Vec<_>>()
+            .join(",");
         text += "\n";
     }
     std::fs::write(path, text).map_err(|e| e.to_string())
@@ -163,7 +254,14 @@ pub fn candidate_row(event: &Value) -> Map<String, Value> {
     let m = &event["metrics"];
     let peak = &event["peak"];
     let known = &event["known"];
-    let flags: Vec<String> = m["flags"].as_object().map(|o| o.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect()).unwrap_or_default();
+    let flags: Vec<String> = m["flags"]
+        .as_object()
+        .map(|o| {
+            o.iter()
+                .map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or("")))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut row = Map::new();
     for (k, v) in [
         ("tic", event["tic"].clone()),
@@ -185,7 +283,10 @@ pub fn candidate_row(event: &Value) -> Map<String, Value> {
         ("model_preferred", peak["model_preferred"].clone()),
         ("fpp", event["fpp"]["fpp"].clone()),
         ("nfpp", event["fpp"]["nfpp"].clone()),
-        ("pixel_offset_arcsec", m["pixel_test"]["offset_arcsec"].clone()),
+        (
+            "pixel_offset_arcsec",
+            m["pixel_test"]["offset_arcsec"].clone(),
+        ),
         ("flags", json!(flags.join(";"))),
     ] {
         row.insert(k.to_string(), v);
@@ -194,5 +295,25 @@ pub fn candidate_row(event: &Value) -> Map<String, Value> {
 }
 
 pub const CANDIDATE_COLUMNS: [&str; 21] = [
-    "tic", "signal", "search", "tier", "known", "known_source", "known_disposition", "period_days", "epoch_bjd", "duration_hours", "depth_ppm", "radius_earth", "detector_snr", "vetting_snr", "transits", "planet_log_odds", "model_preferred", "fpp", "nfpp", "pixel_offset_arcsec", "flags",
+    "tic",
+    "signal",
+    "search",
+    "tier",
+    "known",
+    "known_source",
+    "known_disposition",
+    "period_days",
+    "epoch_bjd",
+    "duration_hours",
+    "depth_ppm",
+    "radius_earth",
+    "detector_snr",
+    "vetting_snr",
+    "transits",
+    "planet_log_odds",
+    "model_preferred",
+    "fpp",
+    "nfpp",
+    "pixel_offset_arcsec",
+    "flags",
 ];

@@ -14,7 +14,9 @@ pub mod vet;
 use std::path::PathBuf;
 
 fn arg(args: &[String], flag: &str) -> Option<String> {
-    args.iter().position(|a| a == flag).map(|i| args[i + 1].clone())
+    args.iter()
+        .position(|a| a == flag)
+        .map(|i| args[i + 1].clone())
 }
 
 fn tics_from(args: &[String]) -> Result<Vec<i64>, String> {
@@ -31,7 +33,10 @@ fn tics_from(args: &[String]) -> Result<Vec<i64>, String> {
         let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
         let mut lines = text.lines();
         let header: Vec<&str> = lines.next().unwrap_or("").split(',').collect();
-        let col = header.iter().position(|h| *h == "tic_id" || *h == "tic").ok_or("targets CSV needs a tic_id column")?;
+        let col = header
+            .iter()
+            .position(|h| *h == "tic_id" || *h == "tic")
+            .ok_or("targets CSV needs a tic_id column")?;
         for line in lines {
             if let Some(t) = line.split(',').nth(col).and_then(|s| s.trim().parse().ok()) {
                 tics.push(t);
@@ -53,17 +58,24 @@ fn tics_from(args: &[String]) -> Result<Vec<i64>, String> {
 /// `fbls fetch --tic ID... [--sectors N,M] [--root DIR]`
 pub fn run_fetch(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let root = PathBuf::from(arg(args, "--root").unwrap_or("data".into()));
-    let sectors: Option<Vec<i64>> = arg(args, "--sectors").map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect());
+    let sectors: Option<Vec<i64>> =
+        arg(args, "--sectors").map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect());
     for tic in tics_from(args)? {
-        let written = fetch::fetch_star(&root, tic, sectors.as_deref(), &mut |line| eprintln!("{line}"))?;
+        let written = fetch::fetch_star(&root, tic, sectors.as_deref(), &mut |line| {
+            eprintln!("{line}")
+        })?;
         eprintln!("TIC {tic}: {} new sector files", written.len());
     }
     Ok(())
 }
 
-/// `fbls survey <search|vet|pixel|refine|publish> (--targets FILE | --tic ID... | --all-downloaded) [--root DIR] [--public DIR] [--author NAME] [--device N] [--pmax D]`
+/// `fbls survey <search|vet|pixel|refine|publish> (--targets FILE | --tic ID... | --all-downloaded) [--root DIR] [--public DIR] [--author NAME] [--device N] [--pmax D] [--workers K]`
+/// `--workers` defaults to 2 for `search` (stars sharing the GPU) and to the CPU thread count for `vet`.
 pub fn run_survey(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let stage = args.first().ok_or("survey stage: search, vet, pixel, refine or publish")?.clone();
+    let stage = args
+        .first()
+        .ok_or("survey stage: search, vet, pixel, refine or publish")?
+        .clone();
     let root = PathBuf::from(arg(args, "--root").unwrap_or("data".into()));
     let public = PathBuf::from(arg(args, "--public").unwrap_or("public".into()));
     let catalog = catalog::Catalog::load(&root.join("catalogs"))?;
@@ -72,8 +84,19 @@ pub fn run_survey(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         public,
         catalog,
         author: arg(args, "--author").unwrap_or_default(),
-        device: arg(args, "--device").and_then(|d| d.parse().ok()).unwrap_or(0),
-        pmax: arg(args, "--pmax").and_then(|d| d.parse().ok()).unwrap_or(stages::PERIOD_MAX),
+        device: arg(args, "--device")
+            .and_then(|d| d.parse().ok())
+            .unwrap_or(0),
+        pmax: arg(args, "--pmax")
+            .and_then(|d| d.parse().ok())
+            .unwrap_or(stages::PERIOD_MAX),
+        workers: arg(args, "--workers")
+            .and_then(|w| w.parse().ok())
+            .unwrap_or(if stage == "vet" {
+                std::thread::available_parallelism().map_or(4, |n| n.get())
+            } else {
+                2
+            }),
     };
     let tics = tics_from(args)?;
     match stage.as_str() {
@@ -83,7 +106,9 @@ pub fn run_survey(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         "refine" => survey.run_refine(&tics)?,
         "publish" => {
             let (rows, ctoi, new) = survey.run_publish(&tics)?;
-            eprintln!("public: {rows} vetted signals, {ctoi} CTOI rows, {new} stars first published today");
+            eprintln!(
+                "public: {rows} vetted signals, {ctoi} CTOI rows, {new} stars first published today"
+            );
         }
         other => return Err(format!("unknown survey stage {other}").into()),
     }

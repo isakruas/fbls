@@ -10,7 +10,10 @@ pub struct Header {
 
 impl Header {
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.cards.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.cards
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
     pub fn f64(&self, key: &str) -> Option<f64> {
         self.get(key).and_then(|v| v.trim().parse::<f64>().ok())
@@ -19,7 +22,8 @@ impl Header {
         self.get(key).and_then(|v| v.trim().parse::<i64>().ok())
     }
     pub fn text(&self, key: &str) -> Option<String> {
-        self.get(key).map(|v| v.trim().trim_matches('\'').trim().to_string())
+        self.get(key)
+            .map(|v| v.trim().trim_matches('\'').trim().to_string())
     }
 }
 
@@ -53,7 +57,8 @@ fn parse_header(bytes: &[u8], at: usize) -> Result<(Header, usize), String> {
         if pos + 80 > bytes.len() {
             return Err("truncated FITS header".into());
         }
-        let card = std::str::from_utf8(&bytes[pos..pos + 80]).map_err(|_| "non-ASCII header card")?;
+        let card =
+            std::str::from_utf8(&bytes[pos..pos + 80]).map_err(|_| "non-ASCII header card")?;
         pos += 80;
         let key = card[..8].trim().to_string();
         if key == "END" {
@@ -109,11 +114,23 @@ pub fn read_fits(path: &str) -> Result<Vec<Hdu>, String> {
         let (header, data_start) = parse_header(&bytes, pos)?;
         let bitpix = header.i64("BITPIX").unwrap_or(8);
         let naxis = header.i64("NAXIS").unwrap_or(0) as usize;
-        let naxes: Vec<usize> = (1..=naxis).map(|i| header.i64(&format!("NAXIS{i}")).unwrap_or(0) as usize).collect();
-        let mut size: usize = if naxis == 0 { 0 } else { naxes.iter().product::<usize>() * (bitpix.unsigned_abs() as usize / 8) };
+        let naxes: Vec<usize> = (1..=naxis)
+            .map(|i| header.i64(&format!("NAXIS{i}")).unwrap_or(0) as usize)
+            .collect();
+        let mut size: usize = if naxis == 0 {
+            0
+        } else {
+            naxes.iter().product::<usize>() * (bitpix.unsigned_abs() as usize / 8)
+        };
         let pcount = header.i64("PCOUNT").unwrap_or(0) as usize;
         size += pcount;
-        let name = header.text("EXTNAME").unwrap_or_else(|| if hdus.is_empty() { "PRIMARY".into() } else { String::new() });
+        let name = header.text("EXTNAME").unwrap_or_else(|| {
+            if hdus.is_empty() {
+                "PRIMARY".into()
+            } else {
+                String::new()
+            }
+        });
         let mut columns = Vec::new();
         let (mut rows, mut row_bytes) = (0, 0);
         if header.text("XTENSION").as_deref() == Some("BINTABLE") {
@@ -122,11 +139,19 @@ pub fn read_fits(path: &str) -> Result<Vec<Hdu>, String> {
             let fields = header.i64("TFIELDS").unwrap_or(0) as usize;
             let mut offset = 0;
             for i in 1..=fields {
-                let form = header.text(&format!("TFORM{i}")).ok_or(format!("missing TFORM{i}"))?;
+                let form = header
+                    .text(&format!("TFORM{i}"))
+                    .ok_or(format!("missing TFORM{i}"))?;
                 let code = form.chars().last().ok_or("empty TFORM")?;
                 let repeat: usize = form[..form.len() - 1].parse().unwrap_or(1);
                 let width = code_width(code)?;
-                columns.push(Column { name: header.text(&format!("TTYPE{i}")).unwrap_or_default(), code, repeat, offset, width });
+                columns.push(Column {
+                    name: header.text(&format!("TTYPE{i}")).unwrap_or_default(),
+                    code,
+                    repeat,
+                    offset,
+                    width,
+                });
                 offset += repeat * width;
             }
         }
@@ -134,7 +159,15 @@ pub fn read_fits(path: &str) -> Result<Vec<Hdu>, String> {
         if end > bytes.len() {
             return Err(format!("{path}: truncated data unit {name}"));
         }
-        hdus.push(Hdu { name, header, data: bytes[data_start..end].to_vec(), columns, rows, row_bytes, naxes });
+        hdus.push(Hdu {
+            name,
+            header,
+            data: bytes[data_start..end].to_vec(),
+            columns,
+            rows,
+            row_bytes,
+            naxes,
+        });
         pos = data_start + size.div_ceil(BLOCK) * BLOCK;
     }
     Ok(hdus)
@@ -175,7 +208,6 @@ impl Hdu {
         }
         Ok((out, col.repeat))
     }
-
 }
 
 /// Quality flags excluded by default (attitude tweak, safe mode, coarse point,
@@ -188,8 +220,16 @@ pub const DEFAULT_QUALITY_BITMASK: i64 = 17087;
 pub fn tan_world_to_pixel(h: &Header, ra: f64, dec: f64) -> Option<(f64, f64)> {
     let (crpix1, crpix2) = (h.f64("CRPIX1")?, h.f64("CRPIX2")?);
     let (crval1, crval2) = (h.f64("CRVAL1")?, h.f64("CRVAL2")?);
-    let (cdelt1, cdelt2) = (h.f64("CDELT1").unwrap_or(1.0), h.f64("CDELT2").unwrap_or(1.0));
-    let (pc11, pc12, pc21, pc22) = match (h.f64("CD1_1"), h.f64("CD1_2"), h.f64("CD2_1"), h.f64("CD2_2")) {
+    let (cdelt1, cdelt2) = (
+        h.f64("CDELT1").unwrap_or(1.0),
+        h.f64("CDELT2").unwrap_or(1.0),
+    );
+    let (pc11, pc12, pc21, pc22) = match (
+        h.f64("CD1_1"),
+        h.f64("CD1_2"),
+        h.f64("CD2_1"),
+        h.f64("CD2_2"),
+    ) {
         (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
         _ => (
             h.f64("PC1_1").unwrap_or(1.0) * cdelt1,
@@ -244,9 +284,13 @@ pub struct StarParameters {
 pub fn read_light_curve(path: &str) -> Result<LightCurve, String> {
     let hdus = read_fits(path)?;
     let primary = hdus.first().ok_or("empty FITS")?;
-    let table = hdus.iter().find(|h| h.name == "LIGHTCURVE").ok_or("no LIGHTCURVE extension")?;
+    let table = hdus
+        .iter()
+        .find(|h| h.name == "LIGHTCURVE")
+        .ok_or("no LIGHTCURVE extension")?;
     let aperture = hdus.iter().find(|h| h.name == "APERTURE");
-    let bjd_ref = table.header.f64("BJDREFI").unwrap_or(0.0) + table.header.f64("BJDREFF").unwrap_or(0.0);
+    let bjd_ref =
+        table.header.f64("BJDREFI").unwrap_or(0.0) + table.header.f64("BJDREFF").unwrap_or(0.0);
     let time = table.column_f64("TIME")?;
     let flux = table.column_f64("PDCSAP_FLUX")?;
     let flux_err = table.column_f64("PDCSAP_FLUX_ERR")?;
@@ -254,11 +298,18 @@ pub fn read_light_curve(path: &str) -> Result<LightCurve, String> {
     let c2 = table.column_f64("MOM_CENTR2")?;
     let quality = table.column_f64("QUALITY")?;
     let keep: Vec<usize> = (0..table.rows)
-        .filter(|&i| (quality[i] as i64 & DEFAULT_QUALITY_BITMASK) == 0 && time[i].is_finite() && flux[i].is_finite())
+        .filter(|&i| {
+            (quality[i] as i64 & DEFAULT_QUALITY_BITMASK) == 0
+                && time[i].is_finite()
+                && flux[i].is_finite()
+        })
         .collect();
     let pick = |v: &Vec<f64>| keep.iter().map(|&i| v[i]).collect::<Vec<f64>>();
     let target_pixel = aperture.and_then(|ap| {
-        let (ra, dec) = (primary.header.f64("RA_OBJ")?, primary.header.f64("DEC_OBJ")?);
+        let (ra, dec) = (
+            primary.header.f64("RA_OBJ")?,
+            primary.header.f64("DEC_OBJ")?,
+        );
         let (x, y) = tan_world_to_pixel(&ap.header, ra, dec)?;
         Some((x + ap.header.f64("CRVAL1P")?, y + ap.header.f64("CRVAL2P")?))
     });
@@ -311,7 +362,23 @@ mod tests {
         primary.resize(primary.len().div_ceil(BLOCK) * BLOCK, b' ');
         let rows = 3usize;
         let mut ext = Vec::new();
-        for (k, v) in [("XTENSION", "'BINTABLE'"), ("BITPIX", "8"), ("NAXIS", "2"), ("NAXIS1", "16"), ("NAXIS2", "3"), ("PCOUNT", "0"), ("GCOUNT", "1"), ("TFIELDS", "3"), ("TTYPE1", "'TIME'"), ("TFORM1", "'D'"), ("TTYPE2", "'FLUX'"), ("TFORM2", "'E'"), ("TTYPE3", "'QUALITY'"), ("TFORM3", "'J'"), ("EXTNAME", "'LIGHTCURVE'")] {
+        for (k, v) in [
+            ("XTENSION", "'BINTABLE'"),
+            ("BITPIX", "8"),
+            ("NAXIS", "2"),
+            ("NAXIS1", "16"),
+            ("NAXIS2", "3"),
+            ("PCOUNT", "0"),
+            ("GCOUNT", "1"),
+            ("TFIELDS", "3"),
+            ("TTYPE1", "'TIME'"),
+            ("TFORM1", "'D'"),
+            ("TTYPE2", "'FLUX'"),
+            ("TFORM2", "'E'"),
+            ("TTYPE3", "'QUALITY'"),
+            ("TFORM3", "'J'"),
+            ("EXTNAME", "'LIGHTCURVE'"),
+        ] {
             ext.extend(card(k, v));
         }
         ext.extend(b"END".iter().chain(std::iter::repeat(&b' ').take(77)));

@@ -47,7 +47,9 @@ impl Default for SearchConfig {
         Self {
             period_min: 0.3,
             period_max: 10.0,
-            durations_hours: (0..13).map(|i| (0.5 * 1.25f64.powi(i) * 1e6).round_ties_even() / 1e6).collect(),
+            durations_hours: (0..13)
+                .map(|i| (0.5 * 1.25f64.powi(i) * 1e6).round_ties_even() / 1e6)
+                .collect(),
             threshold: 7.1,
             bin_minutes: 10.0,
             window_days: 0.4,
@@ -90,17 +92,36 @@ impl SearchConfig {
         if !(0.0 < self.period_min && self.period_min < self.period_max) {
             return Err("require 0 < period_min < period_max".into());
         }
-        if self.durations_hours.is_empty() || self.durations_hours.iter().any(|d| !(d.is_finite() && *d > 0.0)) {
+        if self.durations_hours.is_empty()
+            || self
+                .durations_hours
+                .iter()
+                .any(|d| !(d.is_finite() && *d > 0.0))
+        {
             return Err("durations_hours must contain positive finite values".into());
         }
-        let dmin = self.durations_hours.iter().cloned().fold(f64::INFINITY, f64::min);
+        let dmin = self
+            .durations_hours
+            .iter()
+            .cloned()
+            .fold(f64::INFINITY, f64::min);
         if dmin / 24.0 >= self.period_min / 4.0 {
             return Err("minimum duration must be below one quarter of period_min".into());
         }
-        if self.ingress_fractions.is_empty() || self.ingress_fractions.iter().any(|x| !(0.0..0.5).contains(x)) {
+        if self.ingress_fractions.is_empty()
+            || self
+                .ingress_fractions
+                .iter()
+                .any(|x| !(0.0..0.5).contains(x))
+        {
             return Err("ingress fractions must be in [0, 0.5)".into());
         }
-        if self.shape_layers < 1 || self.phase_oversample < 1 || self.period_batch < 1 || self.passes < 1 || self.prescan_factor < 1 {
+        if self.shape_layers < 1
+            || self.phase_oversample < 1
+            || self.period_batch < 1
+            || self.passes < 1
+            || self.prescan_factor < 1
+        {
             return Err("invalid integer search parameter".into());
         }
         if !(0.0 < self.prescan_fraction && self.prescan_fraction <= 1.0) {

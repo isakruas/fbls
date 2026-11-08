@@ -21,22 +21,40 @@ fn parse_npy(bytes: &[u8]) -> Result<Array, String> {
     let (header_len, offset) = if bytes[6] == 1 {
         (u16::from_le_bytes([bytes[8], bytes[9]]) as usize, 10)
     } else {
-        (u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize, 12)
+        (
+            u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize,
+            12,
+        )
     };
-    let header = std::str::from_utf8(&bytes[offset..offset + header_len]).map_err(|e| e.to_string())?;
+    let header =
+        std::str::from_utf8(&bytes[offset..offset + header_len]).map_err(|e| e.to_string())?;
     let descr = extract(header, "'descr':").ok_or("NPY header without descr")?;
-    if extract(header, "'fortran_order':").map(|s| s.starts_with("True")).unwrap_or(false) {
+    if extract(header, "'fortran_order':")
+        .map(|s| s.starts_with("True"))
+        .unwrap_or(false)
+    {
         return Err("fortran_order arrays are not supported".into());
     }
-    let shape_text = header.split("'shape':").nth(1).ok_or("NPY header without shape")?;
-    let shape_text = shape_text.split('(').nth(1).and_then(|s| s.split(')').next()).ok_or("invalid shape")?;
+    let shape_text = header
+        .split("'shape':")
+        .nth(1)
+        .ok_or("NPY header without shape")?;
+    let shape_text = shape_text
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .ok_or("invalid shape")?;
     let shape: Vec<usize> = shape_text
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.parse::<usize>().map_err(|e| e.to_string()))
         .collect::<Result<_, _>>()?;
-    let count: usize = if shape.is_empty() { 1 } else { shape.iter().product() };
+    let count: usize = if shape.is_empty() {
+        1
+    } else {
+        shape.iter().product()
+    };
     let body = &bytes[offset + header_len..];
     let descr = descr.trim_matches(|c| c == '\'' || c == '"');
     let little = !descr.starts_with('>');
@@ -50,7 +68,11 @@ fn parse_npy(bytes: &[u8]) -> Result<Array, String> {
             for i in 0..count {
                 let mut b = [0u8; $w];
                 b.copy_from_slice(&body[i * $w..(i + 1) * $w]);
-                let v = if little { <$t>::from_le_bytes(b) } else { <$t>::from_be_bytes(b) };
+                let v = if little {
+                    <$t>::from_le_bytes(b)
+                } else {
+                    <$t>::from_be_bytes(b)
+                };
                 data.push(v as f64);
             }
         }};
@@ -82,7 +104,10 @@ pub fn read_npz(path: &str) -> Result<HashMap<String, Array>, String> {
         let name = entry.name().trim_end_matches(".npy").to_string();
         let mut bytes = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-        out.insert(name.clone(), parse_npy(&bytes).map_err(|e| format!("{path}:{name}: {e}"))?);
+        out.insert(
+            name.clone(),
+            parse_npy(&bytes).map_err(|e| format!("{path}:{name}: {e}"))?,
+        );
     }
     Ok(out)
 }

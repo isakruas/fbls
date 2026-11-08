@@ -18,7 +18,10 @@ pub struct Product {
 }
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(30)).timeout_read(std::time::Duration::from_secs(600)).build()
+    ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(30))
+        .timeout_read(std::time::Duration::from_secs(600))
+        .build()
 }
 
 /// SPOC 120 s light-curve products of a TIC, one per sector.
@@ -41,14 +44,22 @@ pub fn products(tic: i64) -> Result<Vec<Product>, String> {
     }
     let mut out = Vec::new();
     for row in response["data"].as_array().cloned().unwrap_or_default() {
-        if row["provenance_name"].as_str() != Some("SPOC") || row["t_exptime"].as_f64() != Some(120.0) {
+        if row["provenance_name"].as_str() != Some("SPOC")
+            || row["t_exptime"].as_f64() != Some(120.0)
+        {
             continue;
         }
-        let Some(uri) = row["dataURL"].as_str() else { continue };
+        let Some(uri) = row["dataURL"].as_str() else {
+            continue;
+        };
         if !uri.ends_with("_lc.fits") {
             continue;
         }
-        out.push(Product { sector: row["sequence_number"].as_i64().unwrap_or(0), filename: uri.rsplit('/').next().unwrap().to_string(), uri: uri.to_string() });
+        out.push(Product {
+            sector: row["sequence_number"].as_i64().unwrap_or(0),
+            filename: uri.rsplit('/').next().unwrap().to_string(),
+            uri: uri.to_string(),
+        });
     }
     out.sort_by_key(|p| p.sector);
     out.dedup_by_key(|p| p.sector);
@@ -57,7 +68,13 @@ pub fn products(tic: i64) -> Result<Vec<Product>, String> {
 
 pub fn mirror_url(tic: i64, sector: i64, filename: &str) -> String {
     let t = format!("{tic:016}");
-    format!("https://stpubdata.s3.amazonaws.com/tess/public/tid/s{sector:04}/{}/{}/{}/{}/{filename}", &t[0..4], &t[4..8], &t[8..12], &t[12..16])
+    format!(
+        "https://stpubdata.s3.amazonaws.com/tess/public/tid/s{sector:04}/{}/{}/{}/{}/{filename}",
+        &t[0..4],
+        &t[4..8],
+        &t[8..12],
+        &t[12..16]
+    )
 }
 
 /// Downloads `url` into `output` through a temporary file; false on 404.
@@ -93,7 +110,12 @@ fn sha256_hex(path: &Path) -> Result<String, String> {
 /// Fetches every SPOC light curve of a star into `root/mast/lc` and writes
 /// `root/curves/<tic>/sector-N.fits` (a hard link or copy of the product) with
 /// its provenance sidecar. Existing valid files are kept.
-pub fn fetch_star(root: &Path, tic: i64, only_sectors: Option<&[i64]>, log: &mut dyn FnMut(&str)) -> Result<Vec<PathBuf>, String> {
+pub fn fetch_star(
+    root: &Path,
+    tic: i64,
+    only_sectors: Option<&[i64]>,
+    log: &mut dyn FnMut(&str),
+) -> Result<Vec<PathBuf>, String> {
     let mut written = Vec::new();
     for product in products(tic)? {
         if only_sectors.is_some_and(|s| !s.contains(&product.sector)) {
@@ -103,30 +125,52 @@ pub fn fetch_star(root: &Path, tic: i64, only_sectors: Option<&[i64]>, log: &mut
         let fits_path = root.join("mast").join("lc").join(&product.filename);
         let target = folder.join(format!("sector-{}.fits", product.sector));
         let sidecar = folder.join(format!("sector-{}.json", product.sector));
-        if (target.exists() || folder.join(format!("sector-{}.npz", product.sector)).exists()) && sidecar.exists() {
+        if (target.exists()
+            || folder
+                .join(format!("sector-{}.npz", product.sector))
+                .exists())
+            && sidecar.exists()
+        {
             log(&format!("TIC {tic} sector {} present", product.sector));
             continue;
         }
         if !fits_path.exists() || read_light_curve(fits_path.to_str().unwrap()).is_err() {
             let mut source = "mirror";
-            let ok = download(&mirror_url(tic, product.sector, &product.filename), &fits_path).unwrap_or(false) || {
-                source = "mast";
-                download(&format!("{MAST_DOWNLOAD}{}", product.uri), &fits_path)?
-            };
+            let ok = download(
+                &mirror_url(tic, product.sector, &product.filename),
+                &fits_path,
+            )
+            .unwrap_or(false)
+                || {
+                    source = "mast";
+                    download(&format!("{MAST_DOWNLOAD}{}", product.uri), &fits_path)?
+                };
             if !ok {
-                log(&format!("TIC {tic} sector {} missing (404)", product.sector));
+                log(&format!(
+                    "TIC {tic} sector {} missing (404)",
+                    product.sector
+                ));
                 continue;
             }
             if let Err(e) = read_light_curve(fits_path.to_str().unwrap()) {
                 std::fs::remove_file(&fits_path).ok();
-                log(&format!("TIC {tic} sector {} invalid FITS after transfer: {e}", product.sector));
+                log(&format!(
+                    "TIC {tic} sector {} invalid FITS after transfer: {e}",
+                    product.sector
+                ));
                 continue;
             }
-            log(&format!("TIC {tic} sector {} downloaded from {source}", product.sector));
+            log(&format!(
+                "TIC {tic} sector {} downloaded from {source}",
+                product.sector
+            ));
         }
         let lc = read_light_curve(fits_path.to_str().unwrap())?;
         if lc.tic != tic {
-            return Err(format!("product {} belongs to TIC {}, not {tic}", product.filename, lc.tic));
+            return Err(format!(
+                "product {} belongs to TIC {}, not {tic}",
+                product.filename, lc.tic
+            ));
         }
         std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
         if !target.exists() && std::fs::hard_link(&fits_path, &target).is_err() {
@@ -142,14 +186,21 @@ pub fn fetch_star(root: &Path, tic: i64, only_sectors: Option<&[i64]>, log: &mut
             "time_first_bjd": lc.time_bjd.first(), "time_last_bjd": lc.time_bjd.last(),
             "retrieved_at_utc": now_utc(),
         });
-        std::fs::write(&sidecar, serde_json::to_string_pretty(&meta).unwrap() + "\n").map_err(|e| e.to_string())?;
+        std::fs::write(
+            &sidecar,
+            serde_json::to_string_pretty(&meta).unwrap() + "\n",
+        )
+        .map_err(|e| e.to_string())?;
         written.push(target);
     }
     Ok(written)
 }
 
 pub fn now_utc() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let days = secs / 86400;
     let (h, m, s) = ((secs % 86400) / 3600, (secs % 3600) / 60, secs % 60);
     let (y, mo, d) = civil_from_days(days as i64);

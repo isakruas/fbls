@@ -19,7 +19,11 @@ pub fn mad_scale(values: &[f64]) -> f64 {
 
 pub fn argsort(values: &[f64]) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..values.len()).collect();
-    idx.sort_by(|&a, &b| values[a].partial_cmp(&values[b]).unwrap_or(std::cmp::Ordering::Equal));
+    idx.sort_by(|&a, &b| {
+        values[a]
+            .partial_cmp(&values[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     idx
 }
 

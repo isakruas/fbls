@@ -47,11 +47,25 @@ pub struct PixelResult {
 
 /// Local target pixel file of a sector, downloaded on first use.
 pub fn tpf_file(star: &Star, sector: i64, root: &Path) -> Result<PathBuf, String> {
-    let product = star.meta.get(&sector).and_then(|m| m.product.clone()).ok_or(format!("no product name for sector {sector}"))?;
-    let name = Path::new(&product).file_name().unwrap().to_string_lossy().replace("_lc.fits", "_tp.fits");
+    let product = star
+        .meta
+        .get(&sector)
+        .and_then(|m| m.product.clone())
+        .ok_or(format!("no product name for sector {sector}"))?;
+    let name = Path::new(&product)
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .replace("_lc.fits", "_tp.fits");
     let path = root.join("mast").join("tp").join(&name);
     if !path.exists() {
-        let ok = download(&mirror_url(star.tic, sector, &name), &path)? || download(&format!("https://mast.stsci.edu/api/v0.1/Download/file?uri=mast:TESS/product/{name}"), &path)?;
+        let ok = download(&mirror_url(star.tic, sector, &name), &path)?
+            || download(
+                &format!(
+                    "https://mast.stsci.edu/api/v0.1/Download/file?uri=mast:TESS/product/{name}"
+                ),
+                &path,
+            )?;
         if !ok {
             return Err(format!("target pixel file not found for sector {sector}"));
         }
@@ -71,22 +85,46 @@ pub struct Tpf {
 pub fn read_tpf(path: &Path) -> Result<Tpf, String> {
     let hdus = read_fits(path.to_str().unwrap())?;
     let primary = &hdus[0];
-    let table = hdus.iter().find(|h| h.name == "PIXELS").or(hdus.get(1)).ok_or("no PIXELS extension")?;
-    let aperture = hdus.iter().find(|h| h.name == "APERTURE").ok_or("no APERTURE extension")?;
-    let bjd_ref = table.header.f64("BJDREFI").unwrap_or(0.0) + table.header.f64("BJDREFF").unwrap_or(0.0);
+    let table = hdus
+        .iter()
+        .find(|h| h.name == "PIXELS")
+        .or(hdus.get(1))
+        .ok_or("no PIXELS extension")?;
+    let aperture = hdus
+        .iter()
+        .find(|h| h.name == "APERTURE")
+        .ok_or("no APERTURE extension")?;
+    let bjd_ref =
+        table.header.f64("BJDREFI").unwrap_or(0.0) + table.header.f64("BJDREFF").unwrap_or(0.0);
     let time = table.column_f64("TIME")?;
     let quality = table.column_f64("QUALITY")?;
     let (flux, per_row) = table.column_array("FLUX")?;
-    let (nx, ny) = (aperture.naxes.first().copied().unwrap_or(0), aperture.naxes.get(1).copied().unwrap_or(0));
+    let (nx, ny) = (
+        aperture.naxes.first().copied().unwrap_or(0),
+        aperture.naxes.get(1).copied().unwrap_or(0),
+    );
     if nx * ny != per_row {
         return Err("pixel stamp shape mismatch".into());
     }
-    let (ra, dec) = (primary.header.f64("RA_OBJ").ok_or("RA_OBJ")?, primary.header.f64("DEC_OBJ").ok_or("DEC_OBJ")?);
-    let target = tan_world_to_pixel(&aperture.header, ra, dec).ok_or("target outside the stamp projection")?;
-    let mut out = Tpf { time: Vec::new(), flux: Vec::new(), ny, nx, target };
+    let (ra, dec) = (
+        primary.header.f64("RA_OBJ").ok_or("RA_OBJ")?,
+        primary.header.f64("DEC_OBJ").ok_or("DEC_OBJ")?,
+    );
+    let target = tan_world_to_pixel(&aperture.header, ra, dec)
+        .ok_or("target outside the stamp projection")?;
+    let mut out = Tpf {
+        time: Vec::new(),
+        flux: Vec::new(),
+        ny,
+        nx,
+        target,
+    };
     for r in 0..table.rows {
         let image = &flux[r * per_row..(r + 1) * per_row];
-        if (quality[r] as i64 & DEFAULT_QUALITY_BITMASK) == 0 && time[r].is_finite() && image.iter().any(|v| v.is_finite()) {
+        if (quality[r] as i64 & DEFAULT_QUALITY_BITMASK) == 0
+            && time[r].is_finite()
+            && image.iter().any(|v| v.is_finite())
+        {
             out.time.push(time[r] + bjd_ref);
             out.flux.push(image.to_vec());
         }
@@ -97,8 +135,16 @@ pub fn read_tpf(path: &Path) -> Result<Tpf, String> {
 fn nanmean_images(images: &[&Vec<f64>], n: usize) -> Vec<f64> {
     (0..n)
         .map(|p| {
-            let vals: Vec<f64> = images.iter().map(|img| img[p]).filter(|v| v.is_finite()).collect();
-            if vals.is_empty() { f64::NAN } else { vals.iter().sum::<f64>() / vals.len() as f64 }
+            let vals: Vec<f64> = images
+                .iter()
+                .map(|img| img[p])
+                .filter(|v| v.is_finite())
+                .collect();
+            if vals.is_empty() {
+                f64::NAN
+            } else {
+                vals.iter().sum::<f64>() / vals.len() as f64
+            }
         })
         .collect()
 }
@@ -106,7 +152,11 @@ fn nanmean_images(images: &[&Vec<f64>], n: usize) -> Vec<f64> {
 fn nanstd_images(images: &[&Vec<f64>], n: usize, ddof: usize) -> Vec<f64> {
     (0..n)
         .map(|p| {
-            let vals: Vec<f64> = images.iter().map(|img| img[p]).filter(|v| v.is_finite()).collect();
+            let vals: Vec<f64> = images
+                .iter()
+                .map(|img| img[p])
+                .filter(|v| v.is_finite())
+                .collect();
             std(&vals, ddof)
         })
         .collect()
@@ -126,9 +176,24 @@ pub fn difference_image(tpf: &Tpf, centers: &[f64], duration: f64) -> Option<Dif
     let mut errors: Vec<Vec<f64>> = Vec::new();
     let mut oot: Vec<Vec<f64>> = Vec::new();
     for &c in centers {
-        let inside: Vec<&Vec<f64>> = tpf.time.iter().zip(&tpf.flux).filter(|(t, _)| (**t - c).abs() < duration / 4.0).map(|(_, f)| f).collect();
-        let outside_idx: Vec<usize> = (0..tpf.time.len()).filter(|&i| { let d = (tpf.time[i] - c).abs(); d > 0.75 * duration && d < 1.25 * duration }).collect();
-        if inside.len() < 3 || outside_idx.len() < 6 || !outside_idx.iter().any(|&i| tpf.time[i] < c) || !outside_idx.iter().any(|&i| tpf.time[i] > c) {
+        let inside: Vec<&Vec<f64>> = tpf
+            .time
+            .iter()
+            .zip(&tpf.flux)
+            .filter(|(t, _)| (**t - c).abs() < duration / 4.0)
+            .map(|(_, f)| f)
+            .collect();
+        let outside_idx: Vec<usize> = (0..tpf.time.len())
+            .filter(|&i| {
+                let d = (tpf.time[i] - c).abs();
+                d > 0.75 * duration && d < 1.25 * duration
+            })
+            .collect();
+        if inside.len() < 3
+            || outside_idx.len() < 6
+            || !outside_idx.iter().any(|&i| tpf.time[i] < c)
+            || !outside_idx.iter().any(|&i| tpf.time[i] > c)
+        {
             continue;
         }
         let outside: Vec<&Vec<f64>> = outside_idx.iter().map(|&i| &tpf.flux[i]).collect();
@@ -150,15 +215,36 @@ pub fn difference_image(tpf: &Tpf, centers: &[f64], duration: f64) -> Option<Dif
         (0..n)
             .map(|p| {
                 let a = sd[p] / (diffs.len() as f64).sqrt();
-                let b = (errors.iter().map(|e| e[p] * e[p]).filter(|v| v.is_finite()).sum::<f64>() / errors.len() as f64 / diffs.len() as f64).sqrt();
+                let b = (errors
+                    .iter()
+                    .map(|e| e[p] * e[p])
+                    .filter(|v| v.is_finite())
+                    .sum::<f64>()
+                    / errors.len() as f64
+                    / diffs.len() as f64)
+                    .sqrt();
                 a.max(b)
             })
             .collect()
     } else {
-        (0..n).map(|p| errors.iter().map(|e| if e[p].is_finite() { e[p] * e[p] } else { 0.0 }).sum::<f64>().sqrt() / diffs.len() as f64).collect()
+        (0..n)
+            .map(|p| {
+                errors
+                    .iter()
+                    .map(|e| if e[p].is_finite() { e[p] * e[p] } else { 0.0 })
+                    .sum::<f64>()
+                    .sqrt()
+                    / diffs.len() as f64
+            })
+            .collect()
     };
     let oot_refs: Vec<&Vec<f64>> = oot.iter().collect();
-    Some(DifferenceImage { difference, error, oot: nanmean_images(&oot_refs, n), transits: diffs.len() })
+    Some(DifferenceImage {
+        difference,
+        error,
+        oot: nanmean_images(&oot_refs, n),
+        transits: diffs.len(),
+    })
 }
 
 pub struct Source {
@@ -172,7 +258,9 @@ pub struct Source {
 /// Weighted Gaussian plus constant fit of the difference image: source
 /// position, errors and amplitude significance in pixels.
 pub fn fit_source(image: &[f64], error: &[f64], ny: usize, nx: usize) -> Option<Source> {
-    let good: Vec<usize> = (0..ny * nx).filter(|&p| image[p].is_finite() && error[p].is_finite() && error[p] > 0.0).collect();
+    let good: Vec<usize> = (0..ny * nx)
+        .filter(|&p| image[p].is_finite() && error[p].is_finite() && error[p] > 0.0)
+        .collect();
     if good.len() < 9 {
         return None;
     }
@@ -180,12 +268,39 @@ pub fn fit_source(image: &[f64], error: &[f64], ny: usize, nx: usize) -> Option<
     let w: Vec<f64> = good.iter().map(|&p| 1.0 / error[p]).collect();
     let xg: Vec<f64> = good.iter().map(|&p| (p % nx) as f64).collect();
     let yg: Vec<f64> = good.iter().map(|&p| (p / nx) as f64).collect();
-    let j = *good.iter().max_by(|&&a, &&b| image[a].partial_cmp(&image[b]).unwrap()).unwrap();
-    let start = [image[j].max(1e-12), (j % nx) as f64, (j / nx) as f64, 0.9, median(&z)];
+    let j = *good
+        .iter()
+        .max_by(|&&a, &&b| image[a].partial_cmp(&image[b]).unwrap())
+        .unwrap();
+    let start = [
+        image[j].max(1e-12),
+        (j % nx) as f64,
+        (j / nx) as f64,
+        0.9,
+        median(&z),
+    ];
     let lower = [0.0, -0.5, -0.5, 0.3, f64::NEG_INFINITY];
-    let upper = [f64::INFINITY, nx as f64 - 0.5, ny as f64 - 0.5, 3.0, f64::INFINITY];
+    let upper = [
+        f64::INFINITY,
+        nx as f64 - 0.5,
+        ny as f64 - 0.5,
+        3.0,
+        f64::INFINITY,
+    ];
     let (p, r, jac) = least_squares(
-        |p| (0..z.len()).map(|i| (p[0] * (-((xg[i] - p[1]).powi(2) + (yg[i] - p[2]).powi(2)) / (2.0 * p[3] * p[3])).exp() + p[4] - z[i]) * w[i]).collect(),
+        |p| {
+            (0..z.len())
+                .map(|i| {
+                    (p[0]
+                        * (-((xg[i] - p[1]).powi(2) + (yg[i] - p[2]).powi(2))
+                            / (2.0 * p[3] * p[3]))
+                            .exp()
+                        + p[4]
+                        - z[i])
+                        * w[i]
+                })
+                .collect()
+        },
         &start,
         &lower,
         &upper,
@@ -193,11 +308,24 @@ pub fn fit_source(image: &[f64], error: &[f64], ny: usize, nx: usize) -> Option<
     let dof = good.len().saturating_sub(5).max(1) as f64;
     let chi2 = r.iter().map(|v| v * v).sum::<f64>() / dof;
     // Weighted fit: the covariance is inv(JtJ) scaled by max(reduced chi-square, 1).
-    let errors: Vec<f64> = fit_errors_unit(&jac).iter().map(|e| e * chi2.max(1.0).sqrt()).collect();
+    let errors: Vec<f64> = fit_errors_unit(&jac)
+        .iter()
+        .map(|e| e * chi2.max(1.0).sqrt())
+        .collect();
     if !errors[0].is_finite() {
         return None;
     }
-    Some(Source { x: p[1], y: p[2], x_err: errors[1], y_err: errors[2], snr: if errors[0] > 0.0 { p[0] / errors[0] } else { 0.0 } })
+    Some(Source {
+        x: p[1],
+        y: p[2],
+        x_err: errors[1],
+        y_err: errors[2],
+        snr: if errors[0] > 0.0 {
+            p[0] / errors[0]
+        } else {
+            0.0
+        },
+    })
 }
 
 pub fn transit_centers(time: &[f64], period: Option<f64>, epoch: f64) -> Vec<f64> {
@@ -225,17 +353,31 @@ pub struct SectorImage {
 
 /// Difference image, target position and fitted source per sector with
 /// transits (up to three).
-pub fn sector_images(star: &Star, period: Option<f64>, epoch: f64, duration_hours: f64, root: &Path, epochs: Option<&[f64]>) -> Result<Vec<SectorImage>, String> {
+pub fn sector_images(
+    star: &Star,
+    period: Option<f64>,
+    epoch: f64,
+    duration_hours: f64,
+    root: &Path,
+    epochs: Option<&[f64]>,
+) -> Result<Vec<SectorImage>, String> {
     let duration = duration_hours / 24.0;
-    let times: Vec<f64> = epochs.map(|e| e.to_vec()).unwrap_or_else(|| transit_centers(&star.time_bjd, period, epoch));
+    let times: Vec<f64> = epochs
+        .map(|e| e.to_vec())
+        .unwrap_or_else(|| transit_centers(&star.time_bjd, period, epoch));
     let mut sectors: Vec<i64> = star.sector.clone();
     sectors.sort();
     sectors.dedup();
     let with_transits: Vec<i64> = sectors
         .into_iter()
         .filter(|&s| {
-            let t: Vec<f64> = (0..star.time_bjd.len()).filter(|&i| star.sector[i] == s).map(|i| star.time_bjd[i]).collect();
-            times.iter().any(|&c| c > t[0] - duration && c < t[t.len() - 1] + duration)
+            let t: Vec<f64> = (0..star.time_bjd.len())
+                .filter(|&i| star.sector[i] == s)
+                .map(|i| star.time_bjd[i])
+                .collect();
+            times
+                .iter()
+                .any(|&c| c > t[0] - duration && c < t[t.len() - 1] + duration)
         })
         .collect();
     let chosen = &with_transits[with_transits.len().saturating_sub(MAX_SECTORS)..];
@@ -245,19 +387,50 @@ pub fn sector_images(star: &Star, period: Option<f64>, epoch: f64, duration_hour
         if tpf.time.is_empty() {
             continue;
         }
-        let centers: Vec<f64> = times.iter().cloned().filter(|&c| c > tpf.time[0] && c < tpf.time[tpf.time.len() - 1]).collect();
-        let Some(image) = difference_image(&tpf, &centers, duration) else { continue };
+        let centers: Vec<f64> = times
+            .iter()
+            .cloned()
+            .filter(|&c| c > tpf.time[0] && c < tpf.time[tpf.time.len() - 1])
+            .collect();
+        let Some(image) = difference_image(&tpf, &centers, duration) else {
+            continue;
+        };
         let source = fit_source(&image.difference, &image.error, tpf.ny, tpf.nx);
-        out.push(SectorImage { sector: s, transits: image.transits, difference: image.difference, error: image.error, oot: image.oot, ny: tpf.ny, nx: tpf.nx, target: tpf.target, source });
+        out.push(SectorImage {
+            sector: s,
+            transits: image.transits,
+            difference: image.difference,
+            error: image.error,
+            oot: image.oot,
+            ny: tpf.ny,
+            nx: tpf.nx,
+            target: tpf.target,
+            source,
+        });
     }
     Ok(out)
 }
 
 /// Difference-image source offset from the target, combined over up to three sectors.
-pub fn pixel_test(star: &Star, period: Option<f64>, epoch: f64, duration_hours: f64, root: &Path, epochs: Option<&[f64]>) -> PixelResult {
+pub fn pixel_test(
+    star: &Star,
+    period: Option<f64>,
+    epoch: f64,
+    duration_hours: f64,
+    root: &Path,
+    epochs: Option<&[f64]>,
+) -> PixelResult {
     let images = match sector_images(star, period, epoch, duration_hours, root, epochs) {
         Ok(i) => i,
-        Err(e) => return PixelResult { sigma: None, offset_pixels: None, offset_arcsec: None, sectors: Vec::new(), error: Some(e) },
+        Err(e) => {
+            return PixelResult {
+                sigma: None,
+                offset_pixels: None,
+                offset_arcsec: None,
+                sectors: Vec::new(),
+                error: Some(e),
+            };
+        }
     };
     let mut details = Vec::new();
     for image in &images {
@@ -272,12 +445,27 @@ pub fn pixel_test(star: &Star, period: Option<f64>, epoch: f64, duration_hours: 
                 dx_err: Some(src.x_err.hypot(SYSTEMATIC_PIXELS)),
                 dy_err: Some(src.y_err.hypot(SYSTEMATIC_PIXELS)),
             }),
-            other => details.push(SectorDetail { sector: image.sector, transits: image.transits, difference_snr: other.as_ref().map(|s| s.snr), used: false, dx_pixels: None, dy_pixels: None, dx_err: None, dy_err: None }),
+            other => details.push(SectorDetail {
+                sector: image.sector,
+                transits: image.transits,
+                difference_snr: other.as_ref().map(|s| s.snr),
+                used: false,
+                dx_pixels: None,
+                dy_pixels: None,
+                dx_err: None,
+                dy_err: None,
+            }),
         }
     }
     let used: Vec<&SectorDetail> = details.iter().filter(|d| d.used).collect();
     if used.is_empty() {
-        return PixelResult { sigma: None, offset_pixels: None, offset_arcsec: None, sectors: details, error: None };
+        return PixelResult {
+            sigma: None,
+            offset_pixels: None,
+            offset_arcsec: None,
+            sectors: details,
+            error: None,
+        };
     }
     let combine = |v: &dyn Fn(&SectorDetail) -> f64, e: &dyn Fn(&SectorDetail) -> f64| {
         let w: f64 = used.iter().map(|d| 1.0 / e(d).powi(2)).sum();
@@ -288,7 +476,13 @@ pub fn pixel_test(star: &Star, period: Option<f64>, epoch: f64, duration_hours: 
     let (dy, ey) = combine(&|d| d.dy_pixels.unwrap(), &|d| d.dy_err.unwrap());
     let chi2 = (dx / ex).powi(2) + (dy / ey).powi(2);
     let offset = dx.hypot(dy);
-    PixelResult { sigma: Some(chi2_sigma_2(chi2)), offset_pixels: Some(offset), offset_arcsec: Some(offset * PIXEL_ARCSEC), sectors: details, error: None }
+    PixelResult {
+        sigma: Some(chi2_sigma_2(chi2)),
+        offset_pixels: Some(offset),
+        offset_arcsec: Some(offset * PIXEL_ARCSEC),
+        sectors: details,
+        error: None,
+    }
 }
 
 /// Pixel-level flag on the metrics JSON: a significant offset of half a
@@ -307,7 +501,9 @@ pub fn apply_pixel_test(metrics: &mut serde_json::Value, result: &PixelResult) {
             metrics["flags"]["pixel_offset"] = serde_json::json!(f);
         }
     }
-    let failed = metrics["flags"].as_object().is_some_and(|o| o.values().any(|v| v == super::vet::FAIL));
+    let failed = metrics["flags"]
+        .as_object()
+        .is_some_and(|o| o.values().any(|v| v == super::vet::FAIL));
     metrics["verdict"] = serde_json::json!(if failed { super::vet::FAIL } else { "pass" });
 }
 
@@ -319,10 +515,21 @@ mod tests {
     fn gaussian_source_is_located() {
         let (ny, nx) = (11, 11);
         let (x0, y0) = (6.3, 4.7);
-        let image: Vec<f64> = (0..ny * nx).map(|p| { let (x, y) = ((p % nx) as f64, (p / nx) as f64); 100.0 * (-((x - x0).powi(2) + (y - y0).powi(2)) / (2.0 * 0.8f64.powi(2))).exp() + 2.0 }).collect();
+        let image: Vec<f64> = (0..ny * nx)
+            .map(|p| {
+                let (x, y) = ((p % nx) as f64, (p / nx) as f64);
+                100.0 * (-((x - x0).powi(2) + (y - y0).powi(2)) / (2.0 * 0.8f64.powi(2))).exp()
+                    + 2.0
+            })
+            .collect();
         let error = vec![1.0; ny * nx];
         let s = fit_source(&image, &error, ny, nx).unwrap();
-        assert!((s.x - x0).abs() < 0.02 && (s.y - y0).abs() < 0.02, "{} {}", s.x, s.y);
+        assert!(
+            (s.x - x0).abs() < 0.02 && (s.y - y0).abs() < 0.02,
+            "{} {}",
+            s.x,
+            s.y
+        );
         assert!(s.snr > 50.0);
     }
 }

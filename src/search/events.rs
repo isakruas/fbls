@@ -15,8 +15,18 @@ pub struct EventStats {
     pub overflow: bool,
 }
 
-pub fn single_event_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig, capacity: usize) -> Result<(Vec<Row>, EventStats), Box<dyn std::error::Error>> {
-    let mut ds: Vec<(f64, f64)> = state.durations.iter().cloned().zip(state.rho.iter().cloned()).collect();
+pub fn single_event_search(
+    gpu: &Gpu,
+    state: &FamilyState,
+    cfg: &SearchConfig,
+    capacity: usize,
+) -> Result<(Vec<Row>, EventStats), Box<dyn std::error::Error>> {
+    let mut ds: Vec<(f64, f64)> = state
+        .durations
+        .iter()
+        .cloned()
+        .zip(state.rho.iter().cloned())
+        .collect();
     ds.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     let durations: Vec<f64> = ds.iter().map(|d| d.0).collect();
     let rho: Vec<f64> = ds.iter().map(|d| d.1).collect();
@@ -29,7 +39,17 @@ pub fn single_event_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig, c
     let factors: Vec<f64> = cfg
         .ingress_fractions
         .iter()
-        .flat_map(|&ing| (0..layers).map(move |l| 1.0 - 2.0 * ing * if layers > 1 { l as f64 / (layers - 1) as f64 } else { 0.0 }))
+        .flat_map(|&ing| {
+            (0..layers).map(move |l| {
+                1.0 - 2.0
+                    * ing
+                    * if layers > 1 {
+                        l as f64 / (layers - 1) as f64
+                    } else {
+                        0.0
+                    }
+            })
+        })
         .collect();
     let d_dur = DeviceBuffer::from_host(stream, &durations)?;
     let d_rho = DeviceBuffer::from_host(stream, &rho)?;
@@ -48,7 +68,11 @@ pub fn single_event_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig, c
     unsafe {
         gpu.module.fold(
             stream,
-            LaunchConfig { grid_dim: ((dev.n as u32).div_ceil(FOLD_BLOCK), 1, 1), block_dim: (FOLD_BLOCK, 1, 1), shared_mem_bytes: 0 },
+            LaunchConfig {
+                grid_dim: ((dev.n as u32).div_ceil(FOLD_BLOCK), 1, 1),
+                block_dim: (FOLD_BLOCK, 1, 1),
+                shared_mem_bytes: 0,
+            },
             &dev.time,
             &dev.fields,
             &d_scales,
@@ -59,7 +83,11 @@ pub fn single_event_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig, c
         )?;
         gpu.module.cumulative(
             stream,
-            LaunchConfig { grid_dim: (1, 1, 1), block_dim: (CUM_BLOCK as u32, 1, 1), shared_mem_bytes: 0 },
+            LaunchConfig {
+                grid_dim: (1, 1, 1),
+                block_dim: (CUM_BLOCK as u32, 1, 1),
+                shared_mem_bytes: 0,
+            },
             &folded,
             &mut cum,
             &mut cum32,
@@ -67,7 +95,11 @@ pub fn single_event_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig, c
         )?;
         gpu.module.scan_all(
             stream,
-            LaunchConfig { grid_dim: (tiles as u32, 1, 1), block_dim: (TILE as u32, 1, 1), shared_mem_bytes: 0 },
+            LaunchConfig {
+                grid_dim: (tiles as u32, 1, 1),
+                block_dim: (TILE as u32, 1, 1),
+                shared_mem_bytes: 0,
+            },
             &cum,
             &d_dur,
             &d_rho,
@@ -87,10 +119,19 @@ pub fn single_event_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig, c
         )?;
     }
     unsafe {
-        gpu.module.read_counter(stream, LaunchConfig::for_num_elems(1), &counter, &mut count_out)?;
+        gpu.module.read_counter(
+            stream,
+            LaunchConfig::for_num_elems(1),
+            &counter,
+            &mut count_out,
+        )?;
     }
     let count = count_out.to_host_vec(stream)?[0] as usize;
-    let mut stats = EventStats { templates_scanned: (nb * durations.len() * cfg.ingress_fractions.len()) as u64, threshold_survivors: count, overflow: false };
+    let mut stats = EventStats {
+        templates_scanned: (nb * durations.len() * cfg.ingress_fractions.len()) as u64,
+        threshold_survivors: count,
+        overflow: false,
+    };
     if count > capacity {
         stats.overflow = true;
         return Ok((Vec::new(), stats));
@@ -99,7 +140,13 @@ pub fn single_event_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig, c
     let rows = (0..count)
         .map(|i| {
             let r = &rec[i * EVENT_STRIDE..(i + 1) * EVENT_STRIDE];
-            Row { period: f64::INFINITY, epoch: (r[0] + r[1] / 2.0) / scale + dev.origin, duration: r[1] / scale, score: r[2], depth: r[3] }
+            Row {
+                period: f64::INFINITY,
+                epoch: (r[0] + r[1] / 2.0) / scale + dev.origin,
+                duration: r[1] / scale,
+                score: r[2],
+                depth: r[3],
+            }
         })
         .collect();
     Ok((rows, stats))

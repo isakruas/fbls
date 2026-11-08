@@ -2,7 +2,9 @@
 //! selection with masking, single-event scan and the JSON report.
 
 use crate::config::SearchConfig;
-use crate::prep::curve::{FamilyState, Observations, PreparedCurve, family_state, mask_curve, prepare_families};
+use crate::prep::curve::{
+    FamilyState, Observations, PreparedCurve, family_state, mask_curve, prepare_families,
+};
 use crate::search::events::single_event_search;
 use crate::search::evidence::compare_search;
 use crate::search::scan::{Gpu, Row, signal_search};
@@ -12,14 +14,21 @@ use serde_json::{Value, json};
 const CANDIDATE_CAPACITY: usize = 131072;
 
 fn merged_time(families: &[FamilyState]) -> Vec<f64> {
-    let mut t: Vec<f64> = families.iter().flat_map(|s| s.curve.time.iter().cloned()).collect();
+    let mut t: Vec<f64> = families
+        .iter()
+        .flat_map(|s| s.curve.time.iter().cloned())
+        .collect();
     t.sort_by(|a, b| a.partial_cmp(b).unwrap());
     t.dedup();
     t
 }
 
 /// Raw mission flux: normalize, bin and detrend per duration family, then search.
-pub fn search_transits(obs: &Observations, cfg: &SearchConfig, device: usize) -> Result<Value, Box<dyn std::error::Error>> {
+pub fn search_transits(
+    obs: &Observations,
+    cfg: &SearchConfig,
+    device: usize,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     let durations = cfg.durations_days();
     let families = prepare_families(obs, &durations, &crate::prep_config(cfg))?;
@@ -28,9 +37,17 @@ pub fn search_transits(obs: &Observations, cfg: &SearchConfig, device: usize) ->
 
 /// Detrended fractional flux with baseline zero and per-observation errors,
 /// searched as one family with every duration.
-pub fn search_prepared(obs: &Observations, cfg: &SearchConfig, device: usize) -> Result<Value, Box<dyn std::error::Error>> {
+pub fn search_prepared(
+    obs: &Observations,
+    cfg: &SearchConfig,
+    device: usize,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let err = obs.err.as_ref().ok_or("prepared input requires flux_err")?;
-    let keep: Vec<usize> = (0..obs.time.len()).filter(|&i| obs.time[i].is_finite() && obs.flux[i].is_finite() && err[i].is_finite() && err[i] > 0.0).collect();
+    let keep: Vec<usize> = (0..obs.time.len())
+        .filter(|&i| {
+            obs.time[i].is_finite() && obs.flux[i].is_finite() && err[i].is_finite() && err[i] > 0.0
+        })
+        .collect();
     let mut order = keep.clone();
     order.sort_by(|&a, &b| obs.time[a].partial_cmp(&obs.time[b]).unwrap());
     let curve = PreparedCurve {
@@ -41,10 +58,20 @@ pub fn search_prepared(obs: &Observations, cfg: &SearchConfig, device: usize) ->
         clipped: 0,
     };
     let durations = cfg.durations_days();
-    search_families(vec![(curve, (0..durations.len()).collect())], cfg, device, std::time::Instant::now())
+    search_families(
+        vec![(curve, (0..durations.len()).collect())],
+        cfg,
+        device,
+        std::time::Instant::now(),
+    )
 }
 
-fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfig, device: usize, start: std::time::Instant) -> Result<Value, Box<dyn std::error::Error>> {
+fn search_families(
+    families: Vec<(PreparedCurve, Vec<usize>)>,
+    cfg: &SearchConfig,
+    device: usize,
+    start: std::time::Instant,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let durations = cfg.durations_days();
     let mut states: Vec<FamilyState> = families
         .into_iter()
@@ -95,7 +122,19 @@ fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfi
         }
         seconds_scan += scan_start.elapsed().as_secs_f64();
         let select_start = std::time::Instant::now();
-        let selection = select_peaks(&gpu, &table, &family, &states, &time_all, cfg.threshold, cfg.max_candidates - peaks.len(), cfg.min_events, &masks, &excluded, pass + 1)?;
+        let selection = select_peaks(
+            &gpu,
+            &table,
+            &family,
+            &states,
+            &time_all,
+            cfg.threshold,
+            cfg.max_candidates - peaks.len(),
+            cfg.min_events,
+            &masks,
+            &excluded,
+            pass + 1,
+        )?;
         masks = selection.masks;
         excluded = selection.excluded;
         seconds_select += select_start.elapsed().as_secs_f64();
@@ -109,7 +148,13 @@ fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfi
             states = states
                 .into_iter()
                 .map(|s| {
-                    let curve = mask_curve(&s.curve, lead.period_days, lead.epoch_bjd, lead.duration_hours / 24.0, 0.5);
+                    let curve = mask_curve(
+                        &s.curve,
+                        lead.period_days,
+                        lead.epoch_bjd,
+                        lead.duration_hours / 24.0,
+                        0.5,
+                    );
                     family_state(curve, &s.durations, &s.indices, cfg.correlated_noise)
                 })
                 .collect::<Result<_, _>>()?;
@@ -130,7 +175,13 @@ fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfi
             let mut curve = base.curve.clone();
             for other in &peaks {
                 if other.row != peak.row || other.pass != peak.pass || other.family != peak.family {
-                    curve = mask_curve(&curve, other.period_days, other.epoch_bjd, other.duration_hours / 24.0, 0.5);
+                    curve = mask_curve(
+                        &curve,
+                        other.period_days,
+                        other.epoch_bjd,
+                        other.duration_hours / 24.0,
+                        0.5,
+                    );
                 }
             }
             if curve.time.len() < 6 {
@@ -138,7 +189,10 @@ fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfi
             }
             let state = family_state(curve, &base.durations, &base.indices, cfg.correlated_noise)?;
             let rows = compare_search(&gpu, &state, peak.period_days, cfg)?;
-            let row = rows.iter().find(|r| r.selection_flags & 1 != 0).or(rows.first());
+            let row = rows
+                .iter()
+                .find(|r| r.selection_flags & 1 != 0)
+                .or(rows.first());
             let Some(row) = row else { continue };
             let finite = |x: f64| if x.is_finite() { Some(x) } else { None };
             let p = &mut peaks[index];
@@ -153,7 +207,14 @@ fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfi
             p.evidence_epoch_bjd = Some(row.epoch);
             p.evidence_duration_hours = Some(24.0 * row.duration);
             p.model_preferred = row.planet_log_odds >= cfg.planet_log_odds_min;
-            p.binary_diagnostics_complete = [row.binary_secondary_ratio, row.binary_secondary_phase, row.binary_odd_even_ratio, row.binary_period_days].iter().all(|x| x.is_finite());
+            p.binary_diagnostics_complete = [
+                row.binary_secondary_ratio,
+                row.binary_secondary_phase,
+                row.binary_odd_even_ratio,
+                row.binary_period_days,
+            ]
+            .iter()
+            .all(|x| x.is_finite());
         }
         evidence_seconds = evidence_start.elapsed().as_secs_f64();
     }
@@ -166,8 +227,15 @@ fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfi
         for (k, state) in states.iter().enumerate() {
             let (table, stats) = single_event_search(&gpu, state, cfg, CANDIDATE_CAPACITY)?;
             event_stats.insert(k.to_string(), json!(stats));
-            let selected = select_events(&table, &time_all, cfg.threshold, cfg.max_candidates, &masks);
-            all.extend(selected.iter().map(|e| Row { period: f64::INFINITY, epoch: e.epoch_bjd, duration: e.duration_hours / 24.0, score: e.snr, depth: e.depth }));
+            let selected =
+                select_events(&table, &time_all, cfg.threshold, cfg.max_candidates, &masks);
+            all.extend(selected.iter().map(|e| Row {
+                period: f64::INFINITY,
+                epoch: e.epoch_bjd,
+                duration: e.duration_hours / 24.0,
+                score: e.snr,
+                depth: e.depth,
+            }));
         }
         all.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         events = select_events(&all, &time_all, cfg.threshold, cfg.max_candidates, &masks);
@@ -179,11 +247,19 @@ fn search_families(families: Vec<(PreparedCurve, Vec<usize>)>, cfg: &SearchConfi
     let mut by_model = peaks.clone();
     by_model.sort_by(|a, b| {
         let key = |p: &Peak| {
-            let evidence = if p.model_preferred { p.log_bf_planet_noise } else { None };
-            (if p.model_preferred { 0 } else { 1 }, -(evidence.or(p.planet_log_odds).unwrap_or(f64::NEG_INFINITY)))
+            let evidence = if p.model_preferred {
+                p.log_bf_planet_noise
+            } else {
+                None
+            };
+            (
+                if p.model_preferred { 0 } else { 1 },
+                -(evidence.or(p.planet_log_odds).unwrap_or(f64::NEG_INFINITY)),
+            )
         };
         let (ka, kb) = (key(a), key(b));
-        ka.0.cmp(&kb.0).then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
+        ka.0.cmp(&kb.0)
+            .then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
     });
     if !cfg.model_comparison {
         by_model = by_signal.clone();

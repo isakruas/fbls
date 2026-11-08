@@ -25,15 +25,37 @@ fn alias_error(period: f64, catalog: f64) -> (f64, f64) {
     [1.0 / 3.0, 0.5, 1.0, 2.0, 3.0]
         .iter()
         .map(|&m| ((period / catalog - m).abs() / m, m))
-        .fold((f64::INFINITY, 1.0), |acc, x| if x.0 < acc.0 { x } else { acc })
+        .fold(
+            (f64::INFINITY, 1.0),
+            |acc, x| if x.0 < acc.0 { x } else { acc },
+        )
 }
 
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let stars_path = args.iter().position(|a| a == "--stars").map(|i| args[i + 1].clone()).ok_or("--stars FILE is required")?;
-    let output = args.iter().position(|a| a == "--output").map(|i| args[i + 1].clone());
-    let only: Option<String> = args.iter().position(|a| a == "--tic").map(|i| args[i + 1].clone());
-    let device: usize = args.iter().position(|a| a == "--device").map(|i| args[i + 1].parse().unwrap_or(0)).unwrap_or(0);
-    let data = std::path::PathBuf::from(args.iter().position(|a| a == "--data").map(|i| args[i + 1].clone()).unwrap_or("data".into()));
+    let stars_path = args
+        .iter()
+        .position(|a| a == "--stars")
+        .map(|i| args[i + 1].clone())
+        .ok_or("--stars FILE is required")?;
+    let output = args
+        .iter()
+        .position(|a| a == "--output")
+        .map(|i| args[i + 1].clone());
+    let only: Option<String> = args
+        .iter()
+        .position(|a| a == "--tic")
+        .map(|i| args[i + 1].clone());
+    let device: usize = args
+        .iter()
+        .position(|a| a == "--device")
+        .map(|i| args[i + 1].parse().unwrap_or(0))
+        .unwrap_or(0);
+    let data = std::path::PathBuf::from(
+        args.iter()
+            .position(|a| a == "--data")
+            .map(|i| args[i + 1].clone())
+            .unwrap_or("data".into()),
+    );
     let stars: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(&stars_path)?)?;
     let mut results = Vec::new();
     for star in &stars {
@@ -47,7 +69,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .filter(|p| p.ends_with(".npz") || p.ends_with(".fits"))
             .collect();
         paths.sort();
-        let cfg = SearchConfig { period_max: star["pmax"].as_f64().unwrap_or(20.0), ..SearchConfig::default() };
+        let cfg = SearchConfig {
+            period_max: star["pmax"].as_f64().unwrap_or(20.0),
+            ..SearchConfig::default()
+        };
         let start = std::time::Instant::now();
         let obs = read_inputs(&paths)?;
         let report = crate::pipeline::search_transits(&obs, &cfg, device)?;
@@ -55,20 +80,40 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let catalog_period = star["period"].as_f64().unwrap();
         let catalog_depth = star["depth_ppm"].as_f64().unwrap_or(f64::NAN);
         let catalog_duration = star["duration_h"].as_f64().unwrap_or(f64::NAN);
-        let candidates = report["signal_candidates"].as_array().cloned().unwrap_or_default();
+        let candidates = report["signal_candidates"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         let best = candidates
             .iter()
-            .map(|c| (c, alias_error(c["period_days"].as_f64().unwrap(), catalog_period)))
+            .map(|c| {
+                (
+                    c,
+                    alias_error(c["period_days"].as_f64().unwrap(), catalog_period),
+                )
+            })
             .filter(|(_, (err, _))| *err < 1e-3)
-            .max_by(|a, b| a.0["snr"].as_f64().partial_cmp(&b.0["snr"].as_f64()).unwrap());
+            .max_by(|a, b| {
+                a.0["snr"]
+                    .as_f64()
+                    .partial_cmp(&b.0["snr"].as_f64())
+                    .unwrap()
+            });
         let (found, alias) = match best {
             Some((c, (_, m))) => (Some(c.clone()), Some(m)),
             None => (candidates.first().cloned(), None),
         };
-        let depth_ok = |d: f64| !catalog_depth.is_finite() || (d / catalog_depth > 0.5 && d / catalog_depth < 2.0);
-        let duration_ok = |h: f64| !(catalog_duration > 0.0) || (h / catalog_duration > 0.5 && h / catalog_duration < 2.0);
+        let depth_ok = |d: f64| {
+            !catalog_depth.is_finite() || (d / catalog_depth > 0.5 && d / catalog_depth < 2.0)
+        };
+        let duration_ok = |h: f64| {
+            !(catalog_duration > 0.0) || (h / catalog_duration > 0.5 && h / catalog_duration < 2.0)
+        };
         let recovered = alias.is_some()
-            && found.as_ref().is_some_and(|c| depth_ok(c["depth_ppm"].as_f64().unwrap_or(0.0)) && duration_ok(c["duration_hours"].as_f64().unwrap_or(0.0)));
+            && found.as_ref().is_some_and(|c| {
+                depth_ok(c["depth_ppm"].as_f64().unwrap_or(0.0))
+                    && duration_ok(c["duration_hours"].as_f64().unwrap_or(0.0))
+            });
         let row = Recovery {
             tic: tic.clone(),
             toi: star["toi"].as_str().unwrap_or("").to_string(),
@@ -88,9 +133,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             row.tic,
             row.toi,
             row.catalog_period,
-            row.found_period.map(|p| format!("{p:.4}")).unwrap_or("-".into()),
+            row.found_period
+                .map(|p| format!("{p:.4}"))
+                .unwrap_or("-".into()),
             row.alias.map(|m| format!("{m:.2}")).unwrap_or("-".into()),
-            row.found_snr.map(|s| format!("{s:.1}")).unwrap_or("-".into()),
+            row.found_snr
+                .map(|s| format!("{s:.1}"))
+                .unwrap_or("-".into()),
             row.found_depth_ppm.unwrap_or(0.0),
             row.catalog_depth_ppm,
             row.found_duration_h.unwrap_or(0.0),
@@ -102,7 +151,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     let recovered = results.iter().filter(|r| r.recovered).count();
     let total_seconds: f64 = results.iter().map(|r| r.seconds).sum();
-    println!("recovered {recovered} of {} stars in {total_seconds:.0} s", results.len());
+    println!(
+        "recovered {recovered} of {} stars in {total_seconds:.0} s",
+        results.len()
+    );
     if let Some(path) = output {
         std::fs::write(path, serde_json::to_string_pretty(&results)?)?;
     }

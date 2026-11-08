@@ -2,7 +2,10 @@
 //! memory budget, kernel launches and threshold selection.
 
 use super::grid::period_grid;
-use super::kernels::{CUM_BLOCK, FOLD_BLOCK, FOLD_PERIODS, FOLD_SHARED_BINS, NF, PART_STRIDE, RECORD_STRIDE, TILE, gpu};
+use super::kernels::{
+    CUM_BLOCK, FOLD_BLOCK, FOLD_PERIODS, FOLD_SHARED_BINS, NF, PART_STRIDE, RECORD_STRIDE, TILE,
+    gpu,
+};
 use crate::config::SearchConfig;
 use crate::prep::curve::{FamilyState, Ready};
 use cuda_core::{CudaContext, DeviceBuffer, LaunchConfig, Stream};
@@ -47,14 +50,21 @@ impl Gpu {
         let stream = ctx.default_stream();
         let module = gpu::load(&ctx)?;
         let evidence = super::evidence::evidence_gpu::load(&ctx)?;
-        Ok(Self { _ctx: ctx, stream, module, evidence })
+        Ok(Self {
+            _ctx: ctx,
+            stream,
+            module,
+            evidence,
+        })
     }
 
     /// (free, total) bytes of device memory.
     pub fn memory(&self) -> Result<(usize, usize), Box<dyn std::error::Error>> {
         let (mut free, mut total) = (0usize, 0usize);
         // SAFETY: the context created by `new` is current on this thread; the pointers are valid.
-        let status = unsafe { cuda_core::sys::cuMemGetInfo_v2(&mut free as *mut usize, &mut total as *mut usize) };
+        let status = unsafe {
+            cuda_core::sys::cuMemGetInfo_v2(&mut free as *mut usize, &mut total as *mut usize)
+        };
         if status != 0 {
             return Err(format!("cuMemGetInfo failed: {status:?}").into());
         }
@@ -113,7 +123,14 @@ pub struct Bank<'a> {
 /// Best template per period over the finite staircase bank with `nb` phase
 /// bins; returns (score, row) for every period, score -inf when no template
 /// is usable.
-fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usize, stats: &mut ScanStats) -> Result<Vec<(f64, Row)>, Box<dyn std::error::Error>> {
+fn scan_bank(
+    gpu: &Gpu,
+    dev: &DeviceReady,
+    periods: &[f64],
+    bank: &Bank,
+    nb: usize,
+    stats: &mut ScanStats,
+) -> Result<Vec<(f64, Row)>, Box<dyn std::error::Error>> {
     let profile = std::env::var_os("FBLS_PROFILE").is_some();
     stats.phase_bins = nb;
     let nd = bank.durations.len();
@@ -122,7 +139,17 @@ fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usi
     let factors: Vec<f64> = bank
         .ingress
         .iter()
-        .flat_map(|&ing| (0..layers).map(move |l| 1.0 - 2.0 * ing * if layers > 1 { l as f64 / (layers - 1) as f64 } else { 0.0 }))
+        .flat_map(|&ing| {
+            (0..layers).map(move |l| {
+                1.0 - 2.0
+                    * ing
+                    * if layers > 1 {
+                        l as f64 / (layers - 1) as f64
+                    } else {
+                        0.0
+                    }
+            })
+        })
         .collect();
     let stream = &gpu.stream;
     let d_dur = DeviceBuffer::from_host(stream, bank.durations)?;
@@ -137,8 +164,11 @@ fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usi
     }
     let batch = bank.period_batch.min(budget).min(periods.len());
     let shared_fold = nb <= FOLD_SHARED_BINS;
-    let mut folded_plain = DeviceBuffer::<f64>::zeroed(stream, if shared_fold { batch * nb * NF } else { 1 })?;
-    let folded = DeviceBuffer::<f64>::zeroed(stream, if shared_fold { 1 } else { batch * nb * NF })?.wrap_elem::<DeviceAtomicF64>();
+    let mut folded_plain =
+        DeviceBuffer::<f64>::zeroed(stream, if shared_fold { batch * nb * NF } else { 1 })?;
+    let folded =
+        DeviceBuffer::<f64>::zeroed(stream, if shared_fold { 1 } else { batch * nb * NF })?
+            .wrap_elem::<DeviceAtomicF64>();
     let mut cum = DeviceBuffer::<f64>::zeroed(stream, batch * (2 * nb + 1) * NF)?;
     let mut cum32 = DeviceBuffer::<f32>::zeroed(stream, 2 * batch * (2 * nb + 1) * NF)?;
     let mut parts = DeviceBuffer::<f64>::zeroed(stream, batch * tiles * PART_STRIDE)?;
@@ -157,11 +187,19 @@ fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usi
         let d_scales = DeviceBuffer::from_host(stream, &scales)?;
         let d_periods = DeviceBuffer::from_host(stream, pp)?;
         let fold_cfg = LaunchConfig {
-            grid_dim: ((dev.n as u32).div_ceil(FOLD_BLOCK), (p as u32).div_ceil(FOLD_PERIODS as u32), 1),
+            grid_dim: (
+                (dev.n as u32).div_ceil(FOLD_BLOCK),
+                (p as u32).div_ceil(FOLD_PERIODS as u32),
+                1,
+            ),
             block_dim: (FOLD_BLOCK, 1, 1),
             shared_mem_bytes: 0,
         };
-        let scan_cfg = LaunchConfig { grid_dim: (tiles as u32, p as u32, 1), block_dim: (TILE as u32, 1, 1), shared_mem_bytes: 0 };
+        let scan_cfg = LaunchConfig {
+            grid_dim: (tiles as u32, p as u32, 1),
+            block_dim: (TILE as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
         // SAFETY: grid shapes match each kernel's indexing and every buffer covers the kernel's accesses.
         let mut tick = std::time::Instant::now();
         let mut lap = |acc: &mut f64| {
@@ -176,7 +214,11 @@ fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usi
                 let per_block = (FOLD_SHARED_BINS / nb).clamp(1, 8) as u32;
                 gpu.module.fold_shared(
                     stream,
-                    LaunchConfig { grid_dim: ((p as u32).div_ceil(per_block), 1, 1), block_dim: (FOLD_BLOCK, 1, 1), shared_mem_bytes: 0 },
+                    LaunchConfig {
+                        grid_dim: ((p as u32).div_ceil(per_block), 1, 1),
+                        block_dim: (FOLD_BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
                     &dev.time,
                     &dev.fields,
                     &d_scales,
@@ -189,19 +231,41 @@ fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usi
                 lap(&mut stats.seconds_fold);
                 gpu.module.cumulative_plain(
                     stream,
-                    LaunchConfig { grid_dim: (p as u32, 1, 1), block_dim: (CUM_BLOCK as u32, 1, 1), shared_mem_bytes: 0 },
+                    LaunchConfig {
+                        grid_dim: (p as u32, 1, 1),
+                        block_dim: (CUM_BLOCK as u32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
                     &folded_plain,
                     &mut cum,
                     &mut cum32,
                     nb as u32,
                 )?;
             } else {
-                gpu.module.zero_folded(stream, LaunchConfig::for_num_elems((p * nb * NF) as u32), &folded)?;
-                gpu.module.fold(stream, fold_cfg, &dev.time, &dev.fields, &d_scales, &folded, dev.n as u32, nb as u32, p as u32)?;
+                gpu.module.zero_folded(
+                    stream,
+                    LaunchConfig::for_num_elems((p * nb * NF) as u32),
+                    &folded,
+                )?;
+                gpu.module.fold(
+                    stream,
+                    fold_cfg,
+                    &dev.time,
+                    &dev.fields,
+                    &d_scales,
+                    &folded,
+                    dev.n as u32,
+                    nb as u32,
+                    p as u32,
+                )?;
                 lap(&mut stats.seconds_fold);
                 gpu.module.cumulative(
                     stream,
-                    LaunchConfig { grid_dim: (p as u32, 1, 1), block_dim: (CUM_BLOCK as u32, 1, 1), shared_mem_bytes: 0 },
+                    LaunchConfig {
+                        grid_dim: (p as u32, 1, 1),
+                        block_dim: (CUM_BLOCK as u32, 1, 1),
+                        shared_mem_bytes: 0,
+                    },
                     &folded,
                     &mut cum,
                     &mut cum32,
@@ -258,7 +322,13 @@ fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usi
             let r = &rec[i * RECORD_STRIDE..(i + 1) * RECORD_STRIDE];
             rows.push((
                 sc[i],
-                Row { period: r[0], epoch: (r[2] + r[3] / 2.0) / r[1] + dev.origin, duration: r[3] / r[1], score: sc[i], depth: dp[i] },
+                Row {
+                    period: r[0],
+                    epoch: (r[2] + r[3] / 2.0) / r[1] + dev.origin,
+                    duration: r[3] / r[1],
+                    score: sc[i],
+                    depth: dp[i],
+                },
             ));
         }
         stats.templates_scanned += (p * nd * ns * nb) as u64;
@@ -272,36 +342,67 @@ fn scan_bank(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank, nb: usi
 /// the threshold. With `prescan_factor` > 1 every period is first scanned on
 /// a phase grid coarser by that factor and only periods whose coarse maximum
 /// reaches `prescan_fraction` x threshold are scanned on the full grid.
-pub fn scan_periods(gpu: &Gpu, dev: &DeviceReady, periods: &[f64], bank: &Bank) -> Result<(Vec<Row>, ScanStats), Box<dyn std::error::Error>> {
+pub fn scan_periods(
+    gpu: &Gpu,
+    dev: &DeviceReady,
+    periods: &[f64],
+    bank: &Bank,
+) -> Result<(Vec<Row>, ScanStats), Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
-    let mut stats = ScanStats { periods: periods.len(), ..Default::default() };
+    let mut stats = ScanStats {
+        periods: periods.len(),
+        ..Default::default()
+    };
     if periods.is_empty() || bank.durations.is_empty() {
         return Ok((Vec::new(), stats));
     }
     let dmin = bank.durations.iter().cloned().fold(f64::INFINITY, f64::min);
-    let nb = ((bank.phase_oversample as f64 * periods[periods.len() - 1] / dmin).ceil() as usize).max(8);
+    let nb =
+        ((bank.phase_oversample as f64 * periods[periods.len() - 1] / dmin).ceil() as usize).max(8);
     let mut survivors: Vec<f64> = periods.to_vec();
     if bank.prescan_factor > 1 && nb / bank.prescan_factor >= 8 {
-        let coarse = scan_bank(gpu, dev, periods, bank, nb / bank.prescan_factor, &mut stats)?;
-        survivors = coarse.iter().filter(|(s, _)| s.is_finite() && *s >= bank.prescan_fraction * bank.threshold).map(|(_, r)| r.period).collect();
+        let coarse = scan_bank(
+            gpu,
+            dev,
+            periods,
+            bank,
+            nb / bank.prescan_factor,
+            &mut stats,
+        )?;
+        survivors = coarse
+            .iter()
+            .filter(|(s, _)| s.is_finite() && *s >= bank.prescan_fraction * bank.threshold)
+            .map(|(_, r)| r.period)
+            .collect();
         stats.prescan_survivors = survivors.len();
     }
     let mut rows = Vec::new();
     if !survivors.is_empty() {
         let full = scan_bank(gpu, dev, &survivors, bank, nb, &mut stats)?;
-        rows.extend(full.into_iter().filter(|(s, _)| s.is_finite() && *s >= bank.threshold).map(|(_, r)| r));
+        rows.extend(
+            full.into_iter()
+                .filter(|(s, _)| s.is_finite() && *s >= bank.threshold)
+                .map(|(_, r)| r),
+        );
     }
     stats.seconds = start.elapsed().as_secs_f64();
     Ok((rows, stats))
 }
 
-
-
 /// Best template per period for one family over its own period grid, in
 /// octave bands so that each band only uses durations below a quarter of its
 /// shortest period.
-pub fn signal_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig) -> Result<(Vec<Row>, Vec<f64>, Vec<ScanStats>), Box<dyn std::error::Error>> {
-    let mut ds: Vec<(f64, f64)> = state.durations.iter().cloned().zip(state.rho.iter().cloned()).collect();
+pub fn signal_search(
+    gpu: &Gpu,
+    state: &FamilyState,
+    cfg: &SearchConfig,
+) -> Result<(Vec<Row>, Vec<f64>, Vec<ScanStats>), Box<dyn std::error::Error>> {
+    let mut ds: Vec<(f64, f64)> = state
+        .durations
+        .iter()
+        .cloned()
+        .zip(state.rho.iter().cloned())
+        .collect();
     ds.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     let baseline = *state.ready.time.last().unwrap();
     let maximum = cfg.period_max.min(baseline);
@@ -311,14 +412,22 @@ pub fn signal_search(gpu: &Gpu, state: &FamilyState, cfg: &SearchConfig) -> Resu
     }
     let grid = period_grid(minimum, maximum, baseline, ds[0].0, cfg.period_oversample);
     let dev = DeviceReady::upload(gpu, &state.ready)?;
-    let shape_gate = if cfg.ingress_fractions[0] == 0.0 { cfg.shape_gate_fraction * cfg.threshold } else { 0.0 };
+    let shape_gate = if cfg.ingress_fractions[0] == 0.0 {
+        cfg.shape_gate_fraction * cfg.threshold
+    } else {
+        0.0
+    };
     let mut rows = Vec::new();
     let mut stats = Vec::new();
     let mut lo = grid[0];
     let last = grid[grid.len() - 1];
     while lo <= last {
         let hi = lo * 2.0;
-        let selected: Vec<f64> = grid.iter().cloned().filter(|&p| p >= lo && p < hi).collect();
+        let selected: Vec<f64> = grid
+            .iter()
+            .cloned()
+            .filter(|&p| p >= lo && p < hi)
+            .collect();
         let chosen: Vec<(f64, f64)> = ds.iter().cloned().filter(|d| d.0 < lo / 4.0).collect();
         if !selected.is_empty() && !chosen.is_empty() {
             let durations: Vec<f64> = chosen.iter().map(|d| d.0).collect();

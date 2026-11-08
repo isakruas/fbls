@@ -8,6 +8,16 @@
 //!   fbls fetch --tic ID... [--sectors N,M] [--root data]
 //!   fbls survey <search|vet|pixel|refine|publish> (--targets FILE | --tic ID... | --all-downloaded) [--root data] [--public public]
 
+// Kernel-style code: many scalar parameters, index loops over fixed layouts and
+// literal constants with their full precision.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::excessive_precision,
+    clippy::type_complexity,
+    clippy::neg_cmp_op_on_partial_ord
+)]
+
 mod config;
 mod io {
     pub mod fits;
@@ -52,7 +62,9 @@ pub fn read_inputs(paths: &[String]) -> Result<Observations, String> {
             }
             match err.as_mut() {
                 Some(v) => v.extend_from_slice(&lc.flux_err),
-                None => return Err("all input files must either provide flux_err or omit it".into()),
+                None => {
+                    return Err("all input files must either provide flux_err or omit it".into());
+                }
             }
             time.extend_from_slice(&lc.time_bjd);
             flux.extend_from_slice(&lc.flux);
@@ -62,10 +74,16 @@ pub fn read_inputs(paths: &[String]) -> Result<Observations, String> {
             continue;
         }
         let source = io::npz::read_npz(path)?;
-        let t = source.get("time_bjd").ok_or(format!("{path}: required columns are time_bjd and flux"))?;
-        let f = source.get("flux").ok_or(format!("{path}: required columns are time_bjd and flux"))?;
+        let t = source
+            .get("time_bjd")
+            .ok_or(format!("{path}: required columns are time_bjd and flux"))?;
+        let f = source
+            .get("flux")
+            .ok_or(format!("{path}: required columns are time_bjd and flux"))?;
         if t.shape.len() != 1 || f.shape != t.shape {
-            return Err(format!("{path}: time_bjd and flux must be matching vectors"));
+            return Err(format!(
+                "{path}: time_bjd and flux must be matching vectors"
+            ));
         }
         let n = t.len();
         match source.get("flux_err") {
@@ -75,17 +93,27 @@ pub fn read_inputs(paths: &[String]) -> Result<Observations, String> {
                 }
                 match err.as_mut() {
                     Some(v) => v.extend_from_slice(&e.data),
-                    None => return Err("all input files must either provide flux_err or omit it".into()),
+                    None => {
+                        return Err(
+                            "all input files must either provide flux_err or omit it".into()
+                        );
+                    }
                 }
             }
             Some(_) => return Err(format!("{path}: flux_err must match time_bjd")),
-            None if err.is_some() => return Err("all input files must either provide flux_err or omit it".into()),
+            None if err.is_some() => {
+                return Err("all input files must either provide flux_err or omit it".into());
+            }
             None => {}
         }
         let sector: Vec<i64> = match source.get("sector") {
             Some(s) if s.len() == 1 => vec![s.data[0] as i64; n],
             Some(s) if s.len() == n => s.data.iter().map(|x| *x as i64).collect(),
-            Some(_) => return Err(format!("{path}: sector must be a scalar or an observation vector")),
+            Some(_) => {
+                return Err(format!(
+                    "{path}: sector must be a scalar or an observation vector"
+                ));
+            }
             None => vec![0; n],
         };
         time.extend_from_slice(&t.data);
@@ -95,7 +123,12 @@ pub fn read_inputs(paths: &[String]) -> Result<Observations, String> {
             group.push(*groups.entry((index, s)).or_insert(next));
         }
     }
-    Ok(Observations { time, flux, err, group })
+    Ok(Observations {
+        time,
+        flux,
+        err,
+        group,
+    })
 }
 
 pub fn prep_config(cfg: &SearchConfig) -> PrepConfig {
@@ -165,14 +198,24 @@ fn run_search(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     cfg.validate()?;
     let obs = read_inputs(&inputs)?;
-    let mut report = if prepared { pipeline::search_prepared(&obs, &cfg, device)? } else { pipeline::search_transits(&obs, &cfg, device)? };
+    let mut report = if prepared {
+        pipeline::search_prepared(&obs, &cfg, device)?
+    } else {
+        pipeline::search_transits(&obs, &cfg, device)?
+    };
     report["input_files"] = serde_json::json!(inputs);
     report["input_mode"] = serde_json::json!(if prepared { "prepared" } else { "raw" });
     if let Some(path) = table_path {
-        let rows = report["period_table"].as_array().cloned().unwrap_or_default();
+        let rows = report["period_table"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         let mut text = String::from("period_days,epoch_bjd,duration_days,snr,depth\n");
         for r in rows {
-            text += &format!("{},{},{},{},{}\n", r["period"], r["epoch"], r["duration"], r["score"], r["depth"]);
+            text += &format!(
+                "{},{},{},{},{}\n",
+                r["period"], r["epoch"], r["duration"], r["score"], r["depth"]
+            );
         }
         std::fs::write(path, text)?;
     }

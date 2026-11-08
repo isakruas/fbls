@@ -37,8 +37,14 @@ pub fn wrap(phase: f64, period: f64) -> f64 {
 }
 
 fn positive(v: &Value) -> Option<f64> {
-    let x = v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))?;
-    if x.is_finite() && x > 0.0 { Some(x) } else { None }
+    let x = v
+        .as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))?;
+    if x.is_finite() && x > 0.0 {
+        Some(x)
+    } else {
+        None
+    }
 }
 
 pub struct Catalog {
@@ -51,8 +57,13 @@ impl Catalog {
         if let Ok(text) = std::fs::read_to_string(catalogs.join("toi.json")) {
             let rows: Vec<Value> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             for r in rows {
-                let Some(tic) = r["tid"].as_i64() else { continue };
-                let toi = r["toi"].as_str().map(|s| s.to_string()).or(r["toi"].as_f64().map(|f| format!("{f}")));
+                let Some(tic) = r["tid"].as_i64() else {
+                    continue;
+                };
+                let toi = r["toi"]
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .or(r["toi"].as_f64().map(|f| format!("{f}")));
                 by_star.entry(tic).or_default().push(Known {
                     source: "TOI".into(),
                     name: format!("TOI {}", toi.clone().unwrap_or_default()),
@@ -71,7 +82,9 @@ impl Catalog {
         if let Ok(text) = std::fs::read_to_string(catalogs.join("known.json")) {
             let rows: Vec<Value> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             for r in rows {
-                let Some(tic) = r["tic"].as_i64() else { continue };
+                let Some(tic) = r["tic"].as_i64() else {
+                    continue;
+                };
                 by_star.entry(tic).or_default().push(Known {
                     source: r["source"].as_str().unwrap_or("").into(),
                     name: r["name"].as_str().unwrap_or("").into(),
@@ -118,10 +131,18 @@ pub fn match_known(period: f64, epoch: f64, duration_hours: f64, known: &[Known]
                 for ratio in RATIOS {
                     if (period / (p * ratio) - 1.0).abs() < 0.01 {
                         let cycles = e.map(|e| (epoch - e).abs() / p).unwrap_or(0.0);
-                        let drift = 3.0 * (cycles * k.period_err.unwrap_or(0.0)).hypot(k.epoch_err.unwrap_or(0.0));
-                        if e.is_none() || !k.transiting || drift > p.min(p * ratio) / 4.0 {
+                        let drift = 3.0
+                            * (cycles * k.period_err.unwrap_or(0.0))
+                                .hypot(k.epoch_err.unwrap_or(0.0));
+                        let known_epoch = match e {
+                            Some(e) if k.transiting && drift <= p.min(p * ratio) / 4.0 => Some(e),
+                            _ => None,
+                        };
+                        if known_epoch.is_none() {
                             found = Some((Some(ratio), false));
-                        } else if wrap(epoch - e.unwrap(), p.min(p * ratio)).abs() < d + drift {
+                        } else if wrap(epoch - known_epoch.unwrap_or(0.0), p.min(p * ratio)).abs()
+                            < d + drift
+                        {
                             found = Some((Some(ratio), true));
                         }
                         if found.is_some() {
@@ -133,7 +154,14 @@ pub fn match_known(period: f64, epoch: f64, duration_hours: f64, known: &[Known]
             _ => {}
         }
         if let Some((ratio, checked)) = found {
-            return Some(Match { source: k.source.clone(), name: k.name.clone(), toi: k.toi.clone(), disposition: k.disposition.clone(), period_ratio: ratio, phase_checked: checked });
+            return Some(Match {
+                source: k.source.clone(),
+                name: k.name.clone(),
+                toi: k.toi.clone(),
+                disposition: k.disposition.clone(),
+                period_ratio: ratio,
+                phase_checked: checked,
+            });
         }
     }
     None
@@ -152,19 +180,30 @@ pub fn match_single(epoch: f64, duration_hours: f64, known: &[Known]) -> Option<
         let hit = match k.period {
             None => (epoch - e).abs() < d + 3.0 * k.epoch_err.unwrap_or(0.0),
             Some(p) => {
-                let drift = 3.0 * ((epoch - e).abs() / p * k.period_err.unwrap_or(0.0)).hypot(k.epoch_err.unwrap_or(0.0));
+                let drift = 3.0
+                    * ((epoch - e).abs() / p * k.period_err.unwrap_or(0.0))
+                        .hypot(k.epoch_err.unwrap_or(0.0));
                 drift < p / 4.0 && wrap(epoch - e, p).abs() < d + drift
             }
         };
         if hit {
-            return Some(Match { source: k.source.clone(), name: k.name.clone(), toi: k.toi.clone(), disposition: k.disposition.clone(), period_ratio: None, phase_checked: true });
+            return Some(Match {
+                source: k.source.clone(),
+                name: k.name.clone(),
+                toi: k.toi.clone(),
+                disposition: k.disposition.clone(),
+                period_ratio: None,
+                phase_checked: true,
+            });
         }
     }
     None
 }
 
 pub fn same_period(period: f64, other: f64) -> bool {
-    RATIOS.iter().any(|r| (period / (other * r) - 1.0).abs() < 0.01)
+    RATIOS
+        .iter()
+        .any(|r| (period / (other * r) - 1.0).abs() < 0.01)
 }
 
 /// (period, epoch, duration_hours) of every catalogued transiting signal with

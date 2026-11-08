@@ -45,17 +45,34 @@ const KEY_MAX: u64 = u64::MAX;
 
 /// `row` points at field 0 of the period; `stride` is 2 nb + 1.
 #[inline(always)]
-fn interval(cum: &[f64], row: usize, stride: usize, field: usize, start: usize, width: usize) -> f64 {
+fn interval(
+    cum: &[f64],
+    row: usize,
+    stride: usize,
+    field: usize,
+    start: usize,
+    width: usize,
+) -> f64 {
     let base = row + field * stride;
     unsafe { *cum.get_unchecked(base + start + width) - *cum.get_unchecked(base + start) }
 }
 
 /// f32 interval sum from the (hi, lo) pairs stored at twice the f64 index.
 #[inline(always)]
-fn interval32(cum32: &[f32], row: usize, stride: usize, field: usize, start: usize, width: usize) -> f32 {
+fn interval32(
+    cum32: &[f32],
+    row: usize,
+    stride: usize,
+    field: usize,
+    start: usize,
+    width: usize,
+) -> f32 {
     let base = 2 * (row + field * stride + start);
     let end = base + 2 * width;
-    unsafe { (*cum32.get_unchecked(end) - *cum32.get_unchecked(base)) + (*cum32.get_unchecked(end + 1) - *cum32.get_unchecked(base + 1)) }
+    unsafe {
+        (*cum32.get_unchecked(end) - *cum32.get_unchecked(base))
+            + (*cum32.get_unchecked(end + 1) - *cum32.get_unchecked(base + 1))
+    }
 }
 
 /// Numerator, baseline projection and diagonal norm of a staircase template
@@ -154,7 +171,7 @@ fn block_winner(
         offset /= 2;
     }
     let warp = lane / 32;
-    if lane % 32 == 0 {
+    if lane.is_multiple_of(32) {
         scratch_v[warp * 3] = v.to_bits();
         scratch_v[warp * 3 + 1] = k;
         scratch_v[warp * 3 + 2] = l;
@@ -162,8 +179,14 @@ fn block_winner(
     thread::sync_threads();
     let mut best = (f64::from_bits(scratch_v[0]), scratch_v[1], scratch_v[2]);
     for w in 1..TILE / 32 {
-        let cand = (f64::from_bits(scratch_v[w * 3]), scratch_v[w * 3 + 1], scratch_v[w * 3 + 2]);
-        if cand.0 > best.0 || (cand.0 == best.0 && (cand.1 < best.1 || (cand.1 == best.1 && cand.2 < best.2))) {
+        let cand = (
+            f64::from_bits(scratch_v[w * 3]),
+            scratch_v[w * 3 + 1],
+            scratch_v[w * 3 + 2],
+        );
+        if cand.0 > best.0
+            || (cand.0 == best.0 && (cand.1 < best.1 || (cand.1 == best.1 && cand.2 < best.2)))
+        {
             best = cand;
         }
     }
@@ -181,7 +204,7 @@ fn block_sum_u32(value: u32, lane: usize, scratch: &mut SharedArray<u32, 4>) -> 
         v += shuffle_xor(v, offset);
         offset /= 2;
     }
-    if lane % 32 == 0 {
+    if lane.is_multiple_of(32) {
         scratch[lane / 32] = v;
     }
     thread::sync_threads();
@@ -189,7 +212,6 @@ fn block_sum_u32(value: u32, lane: usize, scratch: &mut SharedArray<u32, 4>) -> 
     thread::sync_threads();
     total
 }
-
 
 /// Inclusive scan of 32 values across a warp.
 #[inline(always)]
@@ -223,14 +245,15 @@ fn prefix_block<F: Fn(usize, usize) -> f64>(
     let lane32 = (lane % 32) as u32;
     let warp = lane / 32;
     let warps = CUM_BLOCK / 32;
-    let store = |cum: &mut DisjointSlice<f64>, cum32: &mut DisjointSlice<f32>, at: usize, value: f64| {
-        let hi = value as f32;
-        unsafe {
-            *cum.get_unchecked_mut(at) = value;
-            *cum32.get_unchecked_mut(2 * at) = hi;
-            *cum32.get_unchecked_mut(2 * at + 1) = (value - hi as f64) as f32;
-        }
-    };
+    let store =
+        |cum: &mut DisjointSlice<f64>, cum32: &mut DisjointSlice<f32>, at: usize, value: f64| {
+            let hi = value as f32;
+            unsafe {
+                *cum.get_unchecked_mut(at) = value;
+                *cum32.get_unchecked_mut(2 * at) = hi;
+                *cum32.get_unchecked_mut(2 * at + 1) = (value - hi as f64) as f32;
+            }
+        };
     if lane == 0 {
         for field in 0..NF {
             store(cum, cum32, row_out + field * row_stride, 0.0);
@@ -255,7 +278,12 @@ fn prefix_block<F: Fn(usize, usize) -> f64>(
                 offset += warp_totals[field * warps + w];
             }
             if b < nb {
-                store(cum, cum32, row_out + field * row_stride + b + 1, local[field] + offset);
+                store(
+                    cum,
+                    cum32,
+                    row_out + field * row_stride + b + 1,
+                    local[field] + offset,
+                );
             }
             let mut total = 0.0;
             for w in 0..warps {
@@ -305,33 +333,65 @@ struct Lane {
 }
 
 #[inline(always)]
-fn rank_fast(lane: &mut Lane, a32: f32, hp32: f32, norm32: f32, rho: f64, baseline: f64, valid: bool, key: u64, di: u32) -> f32 {
+fn rank_fast(
+    lane: &mut Lane,
+    a32: f32,
+    hp32: f32,
+    norm32: f32,
+    rho: f64,
+    baseline: f64,
+    valid: bool,
+    key: u64,
+    di: u32,
+) -> f32 {
     let cn = baseline as f32 * norm32;
     let qq = (rho * rho) as f32 * (cn - hp32 * hp32);
     let merit = a32 * a32 / qq;
-    let safe = cn > 0.0 && qq >= 0.001 * cn && merit >= 1e-30 && merit <= 1e30;
+    let safe = cn > 0.0 && qq >= 0.001 * cn && (1e-30..=1e30).contains(&merit);
     lane.unsafe_merit |= valid && !safe;
     let best = lane.best as f32;
     let guard = 1e-5f32;
     let near = best > 0.0 && (merit - best).abs() <= guard * merit.max(best);
     let far_better = merit > best * (1.0 + 4.0 * guard);
-    lane.sensitive = if valid && safe && far_better { false } else { lane.sensitive || (valid && safe && near) };
+    lane.sensitive = if valid && safe && far_better {
+        false
+    } else {
+        lane.sensitive || (valid && safe && near)
+    };
     let better = valid && safe && (merit > best || (merit == best && key < lane.key));
     if better {
         lane.best = merit as f64;
         lane.key = key;
         lane.di = di;
     }
-    if valid && safe { merit } else { f32::NEG_INFINITY }
+    if valid && safe {
+        merit
+    } else {
+        f32::NEG_INFINITY
+    }
 }
 
 #[inline(always)]
-fn rank_exact(lane: &mut Lane, a: f64, hp: f64, norm: f64, rho: f64, baseline: f64, valid: bool, key: u64, di: u32) -> f64 {
+fn rank_exact(
+    lane: &mut Lane,
+    a: f64,
+    hp: f64,
+    norm: f64,
+    rho: f64,
+    baseline: f64,
+    valid: bool,
+    key: u64,
+    di: u32,
+) -> f64 {
     let d = hp * hp / baseline;
     let q = norm - d;
     lane.bad |= valid && q <= 0.0;
     let candidate = (a / rho) / q.max(1e-300).sqrt();
-    let merit = if valid && q > 0.0 && candidate < f64::INFINITY { candidate } else { NEG_INF };
+    let merit = if valid && q > 0.0 && candidate < f64::INFINITY {
+        candidate
+    } else {
+        NEG_INF
+    };
     let better = merit > lane.best || (merit == lane.best && key < lane.key);
     if better {
         lane.best = merit;
@@ -349,7 +409,15 @@ pub mod gpu {
     /// thread per observation; each observation is read once and scattered
     /// into FOLD_PERIODS period histograms with global f64 atomics.
     #[kernel]
-    pub fn fold(time: &[f64], fields: &[f64], scales: &[f64], folded: &[DeviceAtomicF64], n: u32, nb: u32, periods: u32) {
+    pub fn fold(
+        time: &[f64],
+        fields: &[f64],
+        scales: &[f64],
+        folded: &[DeviceAtomicF64],
+        n: u32,
+        nb: u32,
+        periods: u32,
+    ) {
         let i = (thread::blockIdx_x() * thread::blockDim_x() + thread::threadIdx_x()) as usize;
         let group = thread::blockIdx_y() as usize;
         let n = n as usize;
@@ -377,7 +445,16 @@ pub mod gpu {
     /// group and scattered into `per_block` histograms, then written out.
     #[kernel]
     #[allow(clippy::too_many_arguments)]
-    pub fn fold_shared(time: &[f64], fields: &[f64], scales: &[f64], mut folded: DisjointSlice<f64>, n: u32, nb: u32, periods: u32, per_block: u32) {
+    pub fn fold_shared(
+        time: &[f64],
+        fields: &[f64],
+        scales: &[f64],
+        mut folded: DisjointSlice<f64>,
+        n: u32,
+        nb: u32,
+        periods: u32,
+        per_block: u32,
+    ) {
         static mut HIST: SharedArray<f64, { NF * FOLD_SHARED_BINS }> = SharedArray::UNINIT;
         let lane = thread::threadIdx_x() as usize;
         let block = thread::blockDim_x() as usize;
@@ -435,26 +512,42 @@ pub mod gpu {
     /// totals), the running carry links the segments, and the second copy is
     /// the first plus the period total.
     #[kernel]
-    pub fn cumulative(folded: &[DeviceAtomicF64], mut cum: DisjointSlice<f64>, mut cum32: DisjointSlice<f32>, nb: u32) {
+    pub fn cumulative(
+        folded: &[DeviceAtomicF64],
+        mut cum: DisjointSlice<f64>,
+        mut cum32: DisjointSlice<f32>,
+        nb: u32,
+    ) {
         static mut WARP_TOTALS: SharedArray<f64, { NF * (CUM_BLOCK / 32) }> = SharedArray::UNINIT;
         let lane = thread::threadIdx_x() as usize;
         let f = thread::blockIdx_x() as usize;
         let nb = nb as usize;
         let row_in = f * nb * NF;
-        let load = |b: usize, field: usize| folded[row_in + b * NF + field].load(AtomicOrdering::Relaxed);
-        prefix_block(&load, &mut cum, &mut cum32, f, nb, lane, unsafe { &mut *(&raw mut WARP_TOTALS) });
+        let load =
+            |b: usize, field: usize| folded[row_in + b * NF + field].load(AtomicOrdering::Relaxed);
+        prefix_block(&load, &mut cum, &mut cum32, f, nb, lane, unsafe {
+            &mut *core::ptr::addr_of_mut!(WARP_TOTALS)
+        });
     }
 
     /// Same scan over a plain f64 histogram.
     #[kernel]
-    pub fn cumulative_plain(folded: &[f64], mut cum: DisjointSlice<f64>, mut cum32: DisjointSlice<f32>, nb: u32) {
+    pub fn cumulative_plain(
+        folded: &[f64],
+        mut cum: DisjointSlice<f64>,
+        mut cum32: DisjointSlice<f32>,
+        nb: u32,
+    ) {
         static mut WARP_TOTALS_P: SharedArray<f64, { NF * (CUM_BLOCK / 32) }> = SharedArray::UNINIT;
         let lane = thread::threadIdx_x() as usize;
         let f = thread::blockIdx_x() as usize;
         let nb = nb as usize;
         let row_in = f * nb * NF;
-        let load = |b: usize, field: usize| unsafe { *folded.get_unchecked(row_in + b * NF + field) };
-        prefix_block(&load, &mut cum, &mut cum32, f, nb, lane, unsafe { &mut *(&raw mut WARP_TOTALS_P) });
+        let load =
+            |b: usize, field: usize| unsafe { *folded.get_unchecked(row_in + b * NF + field) };
+        prefix_block(&load, &mut cum, &mut cum32, f, nb, lane, unsafe {
+            &mut *core::ptr::addr_of_mut!(WARP_TOTALS_P)
+        });
     }
 
     /// Grid (tiles, periods), block TILE. Each lane owns one phase bin and
@@ -498,7 +591,14 @@ pub mod gpu {
         let n = n as f64;
         let nb1 = (nb + 1) as u64;
 
-        let mut state = Lane { best: NEG_INF, key: KEY_MAX, di: 0, bad: false, sensitive: false, unsafe_merit: false };
+        let mut state = Lane {
+            best: NEG_INF,
+            key: KEY_MAX,
+            di: 0,
+            bad: false,
+            sensitive: false,
+            unsafe_merit: false,
+        };
         let mut fast = true;
         let mut retry = false;
         let mut winner_key = KEY_MAX;
@@ -512,7 +612,14 @@ pub mod gpu {
                     break;
                 }
                 fast = false;
-                state = Lane { best: NEG_INF, key: KEY_MAX, di: 0, bad: false, sensitive: false, unsafe_merit: false };
+                state = Lane {
+                    best: NEG_INF,
+                    key: KEY_MAX,
+                    di: 0,
+                    bad: false,
+                    sensitive: false,
+                    unsafe_merit: false,
+                };
             }
             let gate_value = if fast { gate * gate / baseline } else { gate };
             for di in 0..nd {
@@ -524,21 +631,38 @@ pub mod gpu {
                     let count = interval32(cum32, row, stride, F_N, jj, k);
                     let w = interval32(cum32, row, stride, F_W, jj, k);
                     let outer32 = (interval32(cum32, row, stride, F_V, jj, k), w, w);
-                    let usable = j < nb && raw_k < nb / 2 && count >= 3.0 && count as f64 <= n - 3.0;
+                    let usable =
+                        j < nb && raw_k < nb / 2 && count >= 3.0 && count as f64 <= n - 3.0;
                     let valid = usable && outer32.0 > 0.0;
-                    (rank_fast(&mut state, outer32.0, outer32.1, outer32.2, r, baseline, valid, key, di as u32) as f64, usable, valid, outer32)
+                    (
+                        rank_fast(
+                            &mut state, outer32.0, outer32.1, outer32.2, r, baseline, valid, key,
+                            di as u32,
+                        ) as f64,
+                        usable,
+                        valid,
+                        outer32,
+                    )
                 } else {
                     let count = interval(cum, row, stride, F_N, jj, k);
                     let w = interval(cum, row, stride, F_W, jj, k);
                     let outer = (interval(cum, row, stride, F_V, jj, k), w, w);
                     let usable = j < nb && raw_k < nb / 2 && count >= 3.0 && count <= n - 3.0;
                     let valid = usable && outer.0 > 0.0;
-                    (rank_exact(&mut state, outer.0, outer.1, outer.2, r, baseline, valid, key, di as u32), usable, valid, (0.0, 0.0, 0.0))
+                    (
+                        rank_exact(
+                            &mut state, outer.0, outer.1, outer.2, r, baseline, valid, key,
+                            di as u32,
+                        ),
+                        usable,
+                        valid,
+                        (0.0, 0.0, 0.0),
+                    )
                 };
                 // Tile-level shape gate: shapes are evaluated in a tile when
                 // any lane's box reaches the gate.
                 let warp_pass = cuda_device::warp::any(valid && merit >= gate_value);
-                if lane % 32 == 0 {
+                if lane.is_multiple_of(32) {
                     unsafe {
                         S_FLAG[lane / 32] = warp_pass as u32;
                     }
@@ -551,13 +675,37 @@ pub mod gpu {
                         let ing = ingress[si];
                         let key = ((si as u64) * nb1 + k as u64) * nb1 + jj as u64;
                         if fast {
-                            let (a, hp, norm) = shape_sums_f32(cum32, row, stride, jj, k, outer32, ing, factors, si, layers);
-                            rank_fast(&mut state, a, hp, norm, r, baseline, usable && a > 0.0, key, di as u32);
+                            let (a, hp, norm) = shape_sums_f32(
+                                cum32, row, stride, jj, k, outer32, ing, factors, si, layers,
+                            );
+                            rank_fast(
+                                &mut state,
+                                a,
+                                hp,
+                                norm,
+                                r,
+                                baseline,
+                                usable && a > 0.0,
+                                key,
+                                di as u32,
+                            );
                         } else {
                             let w = interval(cum, row, stride, F_W, jj, k);
                             let outer = (interval(cum, row, stride, F_V, jj, k), w, w);
-                            let (a, hp, norm) = shape_sums(cum, row, stride, jj, k, outer, ing, factors, si, layers);
-                            rank_exact(&mut state, a, hp, norm, r, baseline, usable && a > 0.0, key, di as u32);
+                            let (a, hp, norm) = shape_sums(
+                                cum, row, stride, jj, k, outer, ing, factors, si, layers,
+                            );
+                            rank_exact(
+                                &mut state,
+                                a,
+                                hp,
+                                norm,
+                                r,
+                                baseline,
+                                usable && a > 0.0,
+                                key,
+                                di as u32,
+                            );
                         }
                     }
                 }
@@ -565,11 +713,18 @@ pub mod gpu {
             if fast && state.best <= 0.0 {
                 state.key = nb1 + jj as u64;
             }
-            let (value, key, chosen) = block_winner(state.best, state.key, lane, unsafe { &mut *(&raw mut S_WIN) });
+            let (value, key, chosen) = block_winner(state.best, state.key, lane, unsafe {
+                &mut *core::ptr::addr_of_mut!(S_WIN)
+            });
             let guard = if fast { 1e-5 } else { 1e-10 };
             let near_top = state.best > 0.0 && state.best >= value * (1.0 - guard);
-            let packed = (near_top as u32) | ((near_top && state.sensitive) as u32) << 8 | (state.unsafe_merit as u32) << 16 | (state.bad as u32) << 24;
-            let sums = block_sum_u32(packed, lane, unsafe { &mut *(&raw mut S_CNT) });
+            let packed = (near_top as u32)
+                | ((near_top && state.sensitive) as u32) << 8
+                | (state.unsafe_merit as u32) << 16
+                | (state.bad as u32) << 24;
+            let sums = block_sum_u32(packed, lane, unsafe {
+                &mut *core::ptr::addr_of_mut!(S_CNT)
+            });
             let near_count = sums & 0xff;
             let near_sensitive = (sums >> 8) & 0xff > 0;
             let unsafe_any = (sums >> 16) & 0xff > 0;
@@ -597,11 +752,26 @@ pub mod gpu {
             let r = rho[winner_di as usize];
             let w = interval(cum, row, stride, F_W, phase, width);
             let outer = (interval(cum, row, stride, F_V, phase, width), w, w);
-            let (a0, hp, norm) = shape_sums(cum, row, stride, phase, width, outer, ing, factors, si.min(ns - 1), layers);
+            let (a0, hp, norm) = shape_sums(
+                cum,
+                row,
+                stride,
+                phase,
+                width,
+                outer,
+                ing,
+                factors,
+                si.min(ns - 1),
+                layers,
+            );
             let a = a0 / r;
             let d = hp * hp / baseline;
             let q = (norm - d).max(1e-300);
-            let value = if winner_value > NEG_INF { a / q.sqrt() } else { NEG_INF };
+            let value = if winner_value > NEG_INF {
+                a / q.sqrt()
+            } else {
+                NEG_INF
+            };
             let depth = a / q * r;
             let out = (f * (thread::gridDim_x() as usize) + tile) * PART_STRIDE;
             unsafe {
@@ -615,7 +785,8 @@ pub mod gpu {
                 *parts.get_unchecked_mut(out + 7) = value;
                 *parts.get_unchecked_mut(out + 8) = depth;
                 *keys.get_unchecked_mut(f * (thread::gridDim_x() as usize) + tile) = winner_key;
-                *flags.get_unchecked_mut(f * (thread::gridDim_x() as usize) + tile) = (retry as u32) | ((bad_any as u32) << 1);
+                *flags.get_unchecked_mut(f * (thread::gridDim_x() as usize) + tile) =
+                    (retry as u32) | ((bad_any as u32) << 1);
             }
         }
     }
@@ -664,7 +835,18 @@ pub mod gpu {
                 continue;
             }
             for si in 0..ns {
-                let (a, hp, norm) = shape_sums(cum, 0, stride, j, k, outer, ingress[si], factors, si, layers);
+                let (a, hp, norm) = shape_sums(
+                    cum,
+                    0,
+                    stride,
+                    j,
+                    k,
+                    outer,
+                    ingress[si],
+                    factors,
+                    si,
+                    layers,
+                );
                 let q = norm - hp * hp / baseline;
                 if !(a > 0.0 && q > 0.0) {
                     continue;
@@ -757,7 +939,13 @@ pub mod gpu {
 
     /// One block per row: in-transit observation count and the count not excluded.
     #[kernel]
-    pub fn count_rows(time: &[f64], excluded: &[u8], rows: &[f64], n: u32, mut counts: DisjointSlice<u32>) {
+    pub fn count_rows(
+        time: &[f64],
+        excluded: &[u8],
+        rows: &[f64],
+        n: u32,
+        mut counts: DisjointSlice<u32>,
+    ) {
         static mut CNT: SharedArray<u32, { 2 * RESCORE_BLOCK }> = SharedArray::UNINIT;
         let lane = thread::threadIdx_x() as usize;
         let r = thread::blockIdx_x() as usize;

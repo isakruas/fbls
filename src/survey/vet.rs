@@ -13,7 +13,10 @@
 //! failure would reject.
 
 use super::catalog::wrap;
-use super::numeric::{Rng, chi2_sigma_2, erfcinv, fit_errors, least_squares, lstsq, mad, mean, median, percentile, std};
+use super::numeric::{
+    Rng, chi2_sigma_2, erfcinv, fit_errors, least_squares, lstsq, mad, mean, median, percentile,
+    std,
+};
 use super::star::Sidecar;
 use crate::io::fits::StarParameters;
 use serde::{Deserialize, Serialize};
@@ -54,7 +57,15 @@ pub struct Folded {
     pub sector: Vec<i64>,
 }
 
-pub fn fold(time: &[f64], corrected: &[f64], sector: &[i64], period: f64, epoch: f64, duration_hours: f64, masks: &[(f64, f64, f64)]) -> Result<Folded, String> {
+pub fn fold(
+    time: &[f64],
+    corrected: &[f64],
+    sector: &[i64],
+    period: f64,
+    epoch: f64,
+    duration_hours: f64,
+    masks: &[(f64, f64, f64)],
+) -> Result<Folded, String> {
     let duration = duration_hours / 24.0;
     if time.len() < 200 || !(0.0 < duration && duration < period / 2.0) {
         return Err("invalid coverage or duration".into());
@@ -64,7 +75,9 @@ pub fn fold(time: &[f64], corrected: &[f64], sector: &[i64], period: f64, epoch:
     let mut outside = vec![false; time.len()];
     let (mut inside_valid, mut outside_count) = (0, 0);
     for i in 0..time.len() {
-        let mut other = masks.iter().any(|&(p, e, d)| wrap(time[i] - e, p).abs() < d / 24.0);
+        let mut other = masks
+            .iter()
+            .any(|&(p, e, d)| wrap(time[i] - e, p).abs() < d / 24.0);
         other &= phase[i].abs() >= duration;
         valid[i] = corrected[i].is_finite() && !other;
         if valid[i] && phase[i].abs() < duration / 2.0 {
@@ -76,14 +89,35 @@ pub fn fold(time: &[f64], corrected: &[f64], sector: &[i64], period: f64, epoch:
     if inside_valid < 5 || outside_count < 100 {
         return Err("not enough coverage of the predicted transit".into());
     }
-    let steps: Vec<f64> = time.windows(2).map(|w| w[1] - w[0]).filter(|&s| s > 0.0).collect();
+    let steps: Vec<f64> = time
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|&s| s > 0.0)
+        .collect();
     let cadence = median(&steps);
-    Ok(Folded { time: time.to_vec(), phase, corrected: corrected.to_vec(), valid, outside, cadence, period, epoch, duration, sector: sector.to_vec() })
+    Ok(Folded {
+        time: time.to_vec(),
+        phase,
+        corrected: corrected.to_vec(),
+        valid,
+        outside,
+        cadence,
+        period,
+        epoch,
+        duration,
+        sector: sector.to_vec(),
+    })
 }
 
 /// Noise of a mean over `width` days, measured out of transit (includes
 /// correlated noise). Returns (noise, expected points per window).
-pub fn window_noise(time: &[f64], values: &[f64], mask: &[bool], width: f64, cadence: f64) -> (f64, f64) {
+pub fn window_noise(
+    time: &[f64],
+    values: &[f64],
+    mask: &[bool],
+    width: f64,
+    cadence: f64,
+) -> (f64, f64) {
     let idx: Vec<usize> = (0..time.len()).filter(|&i| mask[i]).collect();
     let expected = width / cadence;
     if idx.len() < 10 {
@@ -92,13 +126,19 @@ pub fn window_noise(time: &[f64], values: &[f64], mask: &[bool], width: f64, cad
     let t0 = time[idx[0]];
     let mut bins: BTreeMap<i64, (f64, usize)> = BTreeMap::new();
     for &i in &idx {
-        let e = bins.entry(((time[i] - t0) / width).floor() as i64).or_insert((0.0, 0));
+        let e = bins
+            .entry(((time[i] - t0) / width).floor() as i64)
+            .or_insert((0.0, 0));
         e.0 += values[i];
         e.1 += 1;
     }
     let v: Vec<f64> = idx.iter().map(|&i| values[i]).collect();
     let white = 1.4826 * mad(&v) / expected.sqrt();
-    let full: Vec<f64> = bins.values().filter(|(_, c)| *c as f64 >= expected / 2.0).map(|(s, c)| s / *c as f64).collect();
+    let full: Vec<f64> = bins
+        .values()
+        .filter(|(_, c)| *c as f64 >= expected / 2.0)
+        .map(|(s, c)| s / *c as f64)
+        .collect();
     if full.len() < 5 {
         return (white, expected);
     }
@@ -134,7 +174,18 @@ pub fn fit_shape(prep: &Folded) -> (f64, f64, f64, f64) {
     }
     let lowest = profile.iter().cloned().fold(f64::INFINITY, f64::min);
     let start = [(-lowest).clamp(1e-6, 0.99), 1.0, 0.2];
-    let (p, r, jac) = least_squares(|p| centers.iter().zip(&profile).map(|(&x, &y)| trapezoid(x, p[0], p[1], p[2]) - y).collect(), &start, &[0.0, 0.3, 0.01], &[1.0, 2.5, 0.5]);
+    let (p, r, jac) = least_squares(
+        |p| {
+            centers
+                .iter()
+                .zip(&profile)
+                .map(|(&x, &y)| trapezoid(x, p[0], p[1], p[2]) - y)
+                .collect()
+        },
+        &start,
+        &[0.0, 0.3, 0.01],
+        &[1.0, 2.5, 0.5],
+    );
     let err = fit_errors(&r, &jac);
     (p[2], p[1] * prep.duration, err[2], err[1] * prep.duration)
 }
@@ -158,7 +209,11 @@ pub struct Geometry {
 }
 
 fn summary(values: &[f64]) -> (f64, f64) {
-    let (lo, mid, hi) = (percentile(values, 16.0), percentile(values, 50.0), percentile(values, 84.0));
+    let (lo, mid, hi) = (
+        percentile(values, 16.0),
+        percentile(values, 50.0),
+        percentile(values, 84.0),
+    );
     (mid, (hi - lo) / 2.0)
 }
 
@@ -170,7 +225,18 @@ fn summary(values: &[f64]) -> (f64, f64) {
 /// geometry. Insolation and equilibrium temperature use the fitted a/R* when
 /// reliable and the one from the TIC density otherwise.
 #[allow(clippy::too_many_arguments)]
-pub fn geometry(period: f64, depth: f64, depth_err: f64, t14: f64, t14_err: f64, ingress: f64, ingress_err: f64, cadence: f64, star: &StarParameters, a_over_r_tic: f64) -> Geometry {
+pub fn geometry(
+    period: f64,
+    depth: f64,
+    depth_err: f64,
+    t14: f64,
+    t14_err: f64,
+    ingress: f64,
+    ingress_err: f64,
+    cadence: f64,
+    star: &StarParameters,
+    a_over_r_tic: f64,
+) -> Geometry {
     let samples = 4000;
     let finite = |x: f64| x.is_finite();
     let mut out = Geometry::default();
@@ -181,7 +247,11 @@ pub fn geometry(period: f64, depth: f64, depth_err: f64, t14: f64, t14_err: f64,
     if !(finite(t14) && finite(t14_err) && t14_err < 0.2 * t14) {
         reasons.push("duration".to_string());
     }
-    if !(finite(ingress) && finite(ingress_err) && ingress_err < 0.5 * ingress && ingress * t14 >= 2.0 * cadence) {
+    if !(finite(ingress)
+        && finite(ingress_err)
+        && ingress_err < 0.5 * ingress
+        && ingress * t14 >= 2.0 * cadence)
+    {
         reasons.push("ingress".to_string());
     }
     let mut a_over_r: Option<(f64, f64)> = None;
@@ -214,10 +284,19 @@ pub fn geometry(period: f64, depth: f64, depth_err: f64, t14: f64, t14_err: f64,
         }
         if ok_count as f64 / samples as f64 >= 0.68 {
             let (b, be) = summary(&bs);
-            let incl: Vec<f64> = bs.iter().zip(&ars).map(|(b, ar)| (b / ar).acos().to_degrees()).collect();
+            let incl: Vec<f64> = bs
+                .iter()
+                .zip(&ars)
+                .map(|(b, ar)| (b / ar).acos().to_degrees())
+                .collect();
             let (i, ie) = summary(&incl);
             let (ar, are) = summary(&ars);
-            let dens: Vec<f64> = ars.iter().map(|ar| 3.0 * std::f64::consts::PI * ar.powi(3) / (G * (period * DAY).powi(2)) / 1000.0).collect();
+            let dens: Vec<f64> = ars
+                .iter()
+                .map(|ar| {
+                    3.0 * std::f64::consts::PI * ar.powi(3) / (G * (period * DAY).powi(2)) / 1000.0
+                })
+                .collect();
             let (de, dee) = summary(&dens);
             out.impact = Some(b);
             out.impact_err = Some(be);
@@ -262,38 +341,67 @@ pub fn geometry(period: f64, depth: f64, depth_err: f64, t14: f64, t14_err: f64,
 /// position: a source at x_s dimming a fraction delta of the aperture flux
 /// moves the centroid by delta (c_out - x_s) / (1 - delta). Sectors combine
 /// by weighted mean on each axis. Returns (sigma, offset in arcsec).
-pub fn centroid_test(prep: &Folded, centr1: &[f64], centr2: &[f64], depth: f64, meta: &BTreeMap<i64, Sidecar>) -> (f64, f64) {
+pub fn centroid_test(
+    prep: &Folded,
+    centr1: &[f64],
+    centr2: &[f64],
+    depth: f64,
+    meta: &BTreeMap<i64, Sidecar>,
+) -> (f64, f64) {
     let n = prep.time.len();
-    let core: Vec<bool> = (0..n).map(|i| prep.phase[i].abs() < prep.duration / 4.0).collect();
-    let near: Vec<bool> = (0..n).map(|i| prep.outside[i] && prep.phase[i].abs() < 3.0 * prep.duration).collect();
+    let core: Vec<bool> = (0..n)
+        .map(|i| prep.phase[i].abs() < prep.duration / 4.0)
+        .collect();
+    let near: Vec<bool> = (0..n)
+        .map(|i| prep.outside[i] && prep.phase[i].abs() < 3.0 * prep.duration)
+        .collect();
     let mut offsets: Vec<[(f64, f64); 2]> = Vec::new();
     let mut sectors: Vec<i64> = prep.sector.clone();
     sectors.sort();
     sectors.dedup();
     for s in sectors {
         let Some(info) = meta.get(&s) else { continue };
-        let Some(target) = info.target_pixel else { continue };
+        let Some(target) = info.target_pixel else {
+            continue;
+        };
         if !(depth > 0.0) {
             continue;
         }
         let aperture_depth = depth * info.crowdsap.unwrap_or(1.0);
         let mut shifts: Vec<(f64, f64)> = Vec::new();
         for (values, tgt) in [(centr1, target.0), (centr2, target.1)] {
-            let good: Vec<bool> = (0..n).map(|i| prep.sector[i] == s && values[i].is_finite()).collect();
+            let good: Vec<bool> = (0..n)
+                .map(|i| prep.sector[i] == s && values[i].is_finite())
+                .collect();
             let inside: Vec<usize> = (0..n).filter(|&i| good[i] && core[i]).collect();
             let reference: Vec<bool> = (0..n).map(|i| good[i] && near[i]).collect();
             let ref_count = reference.iter().filter(|&&x| x).count();
             if inside.len() < 3 || ref_count < 10 {
                 break;
             }
-            let ref_vals: Vec<f64> = (0..n).filter(|&i| reference[i]).map(|i| values[i]).collect();
+            let ref_vals: Vec<f64> = (0..n)
+                .filter(|&i| reference[i])
+                .map(|i| values[i])
+                .collect();
             let baseline = median(&ref_vals);
             let residual: Vec<f64> = values.iter().map(|v| v - baseline).collect();
-            let (noise, expected) = window_noise(&prep.time, &residual, &reference, prep.duration / 2.0, prep.cadence);
+            let (noise, expected) = window_noise(
+                &prep.time,
+                &residual,
+                &reference,
+                prep.duration / 2.0,
+                prep.cadence,
+            );
             if !noise.is_finite() {
                 break;
             }
-            let shift = mean(&inside.iter().map(|&i| residual[i]).collect::<Vec<_>>()) - median(&(0..n).filter(|&i| reference[i]).map(|i| residual[i]).collect::<Vec<_>>());
+            let shift = mean(&inside.iter().map(|&i| residual[i]).collect::<Vec<_>>())
+                - median(
+                    &(0..n)
+                        .filter(|&i| reference[i])
+                        .map(|i| residual[i])
+                        .collect::<Vec<_>>(),
+                );
             let factor = (1.0 - aperture_depth) / aperture_depth;
             let source = baseline - shift * factor;
             let error = (noise * (expected / inside.len() as f64).sqrt() * factor).hypot(0.1);
@@ -309,17 +417,25 @@ pub fn centroid_test(prep: &Folded, centr1: &[f64], centr2: &[f64], depth: f64, 
     let mut total = Vec::new();
     for axis in 0..2 {
         let w: f64 = offsets.iter().map(|o| 1.0 / (o[axis].1 * o[axis].1)).sum();
-        let v: f64 = offsets.iter().map(|o| o[axis].0 / (o[axis].1 * o[axis].1)).sum();
+        let v: f64 = offsets
+            .iter()
+            .map(|o| o[axis].0 / (o[axis].1 * o[axis].1))
+            .sum();
         total.push((v / w, 1.0 / w.sqrt()));
     }
     let chi2: f64 = total.iter().map(|(o, e)| (o / e) * (o / e)).sum();
-    (chi2_sigma_2(chi2), total[0].0.hypot(total[1].0) * PIXEL_ARCSEC)
+    (
+        chi2_sigma_2(chi2),
+        total[0].0.hypot(total[1].0) * PIXEL_ARCSEC,
+    )
 }
 
 /// Mean stellar density (kg/m^3) from log g and radius.
 pub fn stellar_density(star: &StarParameters) -> f64 {
     match (star.logg, star.radius) {
-        (Some(logg), Some(r)) if r > 0.0 => 3.0 * (10f64.powf(logg) / 100.0) / (4.0 * std::f64::consts::PI * G * r * 6.957e8),
+        (Some(logg), Some(r)) if r > 0.0 => {
+            3.0 * (10f64.powf(logg) / 100.0) / (4.0 * std::f64::consts::PI * G * r * 6.957e8)
+        }
         _ => f64::NAN,
     }
 }
@@ -368,22 +484,54 @@ fn num(v: f64) -> Option<f64> {
 /// Vetting metrics and flags of one folded signal; `raw` is the normalised
 /// PDCSAP flux on the same cadences for the tests that must not see the
 /// detrending.
-pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, centr2: Option<&[f64]>, crowding: Option<f64>, meta: &BTreeMap<i64, Sidecar>, raw: Option<&[f64]>) -> Metrics {
+pub fn measure(
+    prep: &Folded,
+    star: &StarParameters,
+    centr1: Option<&[f64]>,
+    centr2: Option<&[f64]>,
+    crowding: Option<f64>,
+    meta: &BTreeMap<i64, Sidecar>,
+    raw: Option<&[f64]>,
+) -> Metrics {
     let n = prep.time.len();
     let (period, duration) = (prep.period, prep.duration);
-    let (noise, expected) = window_noise(&prep.time, &prep.corrected, &prep.outside, duration / 2.0, prep.cadence);
-    let (box_noise, box_expected) = window_noise(&prep.time, &prep.corrected, &prep.outside, 0.8 * duration, prep.cadence);
-    let number: Vec<f64> = prep.time.iter().map(|t| ((t - prep.epoch) / period).round()).collect();
+    let (noise, expected) = window_noise(
+        &prep.time,
+        &prep.corrected,
+        &prep.outside,
+        duration / 2.0,
+        prep.cadence,
+    );
+    let (box_noise, box_expected) = window_noise(
+        &prep.time,
+        &prep.corrected,
+        &prep.outside,
+        0.8 * duration,
+        prep.cadence,
+    );
+    let number: Vec<f64> = prep
+        .time
+        .iter()
+        .map(|t| ((t - prep.epoch) / period).round())
+        .collect();
     let odd: Vec<bool> = number.iter().map(|k| k.rem_euclid(2.0) == 1.0).collect();
 
     let depth = |offset: f64, select: Option<&Vec<bool>>, half: f64| -> (f64, f64, usize) {
         let chosen: Vec<usize> = (0..n)
-            .filter(|&i| prep.valid[i] && select.is_none_or(|s| s[i]) && wrap(prep.phase[i] - offset * period, period).abs() < half)
+            .filter(|&i| {
+                prep.valid[i]
+                    && select.is_none_or(|s| s[i])
+                    && wrap(prep.phase[i] - offset * period, period).abs() < half
+            })
             .collect();
         if chosen.is_empty() {
             return (f64::NAN, f64::NAN, 0);
         }
-        let (sigma, points) = if half == duration / 4.0 { (noise, expected) } else { (box_noise, box_expected) };
+        let (sigma, points) = if half == duration / 4.0 {
+            (noise, expected)
+        } else {
+            (box_noise, box_expected)
+        };
         let mut error = sigma * (points / chosen.len() as f64).sqrt();
         let mut cycles: BTreeMap<i64, (f64, usize)> = BTreeMap::new();
         for &i in &chosen {
@@ -392,11 +540,24 @@ pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, cen
             e.0 += prep.corrected[i];
             e.1 += 1;
         }
-        let full: Vec<f64> = cycles.values().filter(|(_, c)| *c as f64 >= (points / 4.0).max(3.0)).map(|(s, c)| -s / *c as f64).collect();
+        let full: Vec<f64> = cycles
+            .values()
+            .filter(|(_, c)| *c as f64 >= (points / 4.0).max(3.0))
+            .map(|(s, c)| -s / *c as f64)
+            .collect();
         if full.len() >= 5 {
             error = error.max(1.4826 * mad(&full) / (full.len() as f64).sqrt());
         }
-        (-mean(&chosen.iter().map(|&i| prep.corrected[i]).collect::<Vec<_>>()), error, full.len())
+        (
+            -mean(
+                &chosen
+                    .iter()
+                    .map(|&i| prep.corrected[i])
+                    .collect::<Vec<_>>(),
+            ),
+            error,
+            full.len(),
+        )
     };
 
     let (d, d_err, transits) = depth(0.0, None, duration / 4.0);
@@ -404,7 +565,11 @@ pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, cen
     let (d_odd, e_odd, n_odd) = depth(0.0, Some(&odd), duration / 4.0);
     let even: Vec<bool> = odd.iter().map(|o| !o).collect();
     let (d_even, e_even, n_even) = depth(0.0, Some(&even), duration / 4.0);
-    let odd_even = if n_odd.min(n_even) >= 2 { (d_odd - d_even).abs() / e_odd.hypot(e_even) } else { f64::NAN };
+    let odd_even = if n_odd.min(n_even) >= 2 {
+        (d_odd - d_even).abs() / e_odd.hypot(e_even)
+    } else {
+        f64::NAN
+    };
 
     // Secondary eclipse search over the whole orbit.
     let nbins = ((8.0 * period / duration).ceil() as usize).max(64);
@@ -412,13 +577,15 @@ pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, cen
     let mut hits = vec![0.0; nbins];
     for i in 0..n {
         if prep.valid[i] {
-            let cell = (((prep.phase[i] / period).rem_euclid(1.0)) * nbins as f64).floor() as usize % nbins;
+            let cell = (((prep.phase[i] / period).rem_euclid(1.0)) * nbins as f64).floor() as usize
+                % nbins;
             sums[cell] += prep.corrected[i];
             hits[cell] += 1.0;
         }
     }
     let width = ((nbins as f64 * duration / (2.0 * period)).round() as usize).max(1);
-    let (mut sec_depth, mut sec_sigma, mut sec_phase, mut brightening, mut sec_threshold) = (f64::NAN, 0.0, f64::NAN, 0.0, f64::INFINITY);
+    let (mut sec_depth, mut sec_sigma, mut sec_phase, mut brightening, mut sec_threshold) =
+        (f64::NAN, 0.0, f64::NAN, 0.0, f64::INFINITY);
     {
         let mut window_sum = vec![0.0; nbins];
         let mut window_hits = vec![0.0; nbins];
@@ -428,18 +595,38 @@ pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, cen
                 window_hits[b] += hits[(b + k) % nbins];
             }
         }
-        let center: Vec<f64> = (0..nbins).map(|b| ((b as f64 + width as f64 / 2.0) / nbins as f64).rem_euclid(1.0)).collect();
-        let allowed: Vec<bool> = (0..nbins).map(|b| (center[b] - 0.5).abs() < 0.5 - 1.5 * duration / period && window_hits[b] >= (expected / 4.0).max(3.0)).collect();
+        let center: Vec<f64> = (0..nbins)
+            .map(|b| ((b as f64 + width as f64 / 2.0) / nbins as f64).rem_euclid(1.0))
+            .collect();
+        let allowed: Vec<bool> = (0..nbins)
+            .map(|b| {
+                (center[b] - 0.5).abs() < 0.5 - 1.5 * duration / period
+                    && window_hits[b] >= (expected / 4.0).max(3.0)
+            })
+            .collect();
         let count = allowed.iter().filter(|&&a| a).count();
         if count > 0 {
-            let sigmas: Vec<f64> = (0..nbins).map(|b| (-window_sum[b] / window_hits[b].max(1.0)) / (noise * (expected / window_hits[b].max(1.0)).sqrt())).collect();
-            let best = (0..nbins).filter(|&b| allowed[b]).max_by(|&a, &b| sigmas[a].partial_cmp(&sigmas[b]).unwrap()).unwrap();
+            let sigmas: Vec<f64> = (0..nbins)
+                .map(|b| {
+                    (-window_sum[b] / window_hits[b].max(1.0))
+                        / (noise * (expected / window_hits[b].max(1.0)).sqrt())
+                })
+                .collect();
+            let best = (0..nbins)
+                .filter(|&b| allowed[b])
+                .max_by(|&a, &b| sigmas[a].partial_cmp(&sigmas[b]).unwrap())
+                .unwrap();
             sec_phase = center[best];
             let (sd, se, _) = depth(sec_phase, None, duration / 4.0);
             sec_depth = sd;
             sec_sigma = if se > 0.0 { (sd / se).max(0.0) } else { 0.0 };
-            brightening = (-(0..nbins).filter(|&b| allowed[b]).map(|b| sigmas[b]).fold(f64::INFINITY, f64::min)).max(0.0);
-            sec_threshold = super::numeric::norm_isf(0.01 / (count as f64 / width as f64).max(1.0)).max(3.0);
+            brightening = (-(0..nbins)
+                .filter(|&b| allowed[b])
+                .map(|b| sigmas[b])
+                .fold(f64::INFINITY, f64::min))
+            .max(0.0);
+            sec_threshold =
+                super::numeric::norm_isf(0.01 / (count as f64 / width as f64).max(1.0)).max(3.0);
         }
     }
 
@@ -447,28 +634,72 @@ pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, cen
     let density = stellar_density(star);
     let k = d.max(0.0).sqrt();
     let (a_over_r, albedo) = if density.is_finite() {
-        let ar = (G * density * (period * DAY).powi(2) / (3.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
-        (ar, if d > 0.0 && sec_depth.is_finite() { sec_depth * ar * ar / d } else { f64::NAN })
+        let ar =
+            (G * density * (period * DAY).powi(2) / (3.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
+        (
+            ar,
+            if d > 0.0 && sec_depth.is_finite() {
+                sec_depth * ar * ar / d
+            } else {
+                f64::NAN
+            },
+        )
     } else {
         (f64::NAN, f64::NAN)
     };
     let t14 = if total.is_finite() { total } else { duration };
-    let max_density = 3.0 * std::f64::consts::PI * (period / (std::f64::consts::PI * t14) * (1.0 + k)).powi(3) / (G * (period * DAY).powi(2));
-    let density_ratio = if density.is_finite() { max_density / density } else { f64::NAN };
-    let radius = star.radius.map(|r| k * r * REARTH_PER_RSUN).unwrap_or(f64::NAN);
+    let max_density =
+        3.0 * std::f64::consts::PI * (period / (std::f64::consts::PI * t14) * (1.0 + k)).powi(3)
+            / (G * (period * DAY).powi(2));
+    let density_ratio = if density.is_finite() {
+        max_density / density
+    } else {
+        f64::NAN
+    };
+    let radius = star
+        .radius
+        .map(|r| k * r * REARTH_PER_RSUN)
+        .unwrap_or(f64::NAN);
     let (centroid_sigma, centroid_arcsec) = match (centr1, centr2) {
         (Some(c1), Some(c2)) if !meta.is_empty() => centroid_test(prep, c1, c2, d, meta),
         _ => (f64::NAN, f64::NAN),
     };
-    let snr = if box_err.is_finite() && box_err > 0.0 { bx / box_err } else { f64::NAN };
-    let shape = geometry(period, d, d_err, total, total_err, ingress, ingress_err, prep.cadence, star, a_over_r);
+    let snr = if box_err.is_finite() && box_err > 0.0 {
+        bx / box_err
+    } else {
+        f64::NAN
+    };
+    let shape = geometry(
+        period,
+        d,
+        d_err,
+        total,
+        total_err,
+        ingress,
+        ingress_err,
+        prep.cadence,
+        star,
+        a_over_r,
+    );
 
     let chosen: Vec<usize> = (0..n).filter(|&i| prep.valid[i]).collect();
     let time: Vec<f64> = chosen.iter().map(|&i| prep.time[i]).collect();
     let flux: Vec<f64> = chosen.iter().map(|&i| prep.corrected[i]).collect();
-    let raw_flux: Vec<f64> = chosen.iter().map(|&i| raw.map(|r| r[i]).unwrap_or(f64::NAN)).collect();
+    let raw_flux: Vec<f64> = chosen
+        .iter()
+        .map(|&i| raw.map(|r| r[i]).unwrap_or(f64::NAN))
+        .collect();
     let robo = robo_metrics(&time, &flux, &raw_flux, period, prep.epoch, duration);
-    let mut flags = robo_flags(&robo, period, d, num(radius), num(albedo), shape.impact, if d > 0.0 { Some(k) } else { None }, MAX_RADIUS_EARTH);
+    let mut flags = robo_flags(
+        &robo,
+        period,
+        d,
+        num(radius),
+        num(albedo),
+        shape.impact,
+        if d > 0.0 { Some(k) } else { None },
+        MAX_RADIUS_EARTH,
+    );
     if !(snr >= MIN_SNR) {
         flags.insert("low_snr".into(), FAIL.into());
     }
@@ -480,8 +711,23 @@ pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, cen
     } else if odd_even > 3.0 {
         flags.insert("odd_even".into(), WARN.into());
     }
-    if sec_sigma > sec_threshold && sec_sigma - brightening > 1.0 && (if albedo.is_finite() { albedo > 1.0 } else { sec_depth > 0.1 * d }) {
-        flags.insert("secondary_eclipse".into(), if sec_sigma > SECONDARY_SIGMA { FAIL } else { WARN }.into());
+    if sec_sigma > sec_threshold
+        && sec_sigma - brightening > 1.0
+        && (if albedo.is_finite() {
+            albedo > 1.0
+        } else {
+            sec_depth > 0.1 * d
+        })
+    {
+        flags.insert(
+            "secondary_eclipse".into(),
+            if sec_sigma > SECONDARY_SIGMA {
+                FAIL
+            } else {
+                WARN
+            }
+            .into(),
+        );
     }
     if radius > MAX_RADIUS_EARTH {
         flags.insert("too_large".into(), FAIL.into());
@@ -507,7 +753,12 @@ pub fn measure(prep: &Folded, star: &StarParameters, centr1: Option<&[f64]>, cen
     if ingress > 0.4 {
         flags.entry("v_shape".into()).or_insert(WARN.into());
     }
-    let verdict = if flags.values().any(|v| v == FAIL) { FAIL } else { "pass" }.to_string();
+    let verdict = if flags.values().any(|v| v == FAIL) {
+        FAIL
+    } else {
+        "pass"
+    }
+    .to_string();
     let mut sectors = prep.sector.clone();
     sectors.sort();
     sectors.dedup();
@@ -642,14 +893,28 @@ fn ses_mes(time: &[f64], flux: &[f64], period: f64, epoch: f64, duration: f64) -
     let phase: Vec<f64> = time.iter().map(|&t| phase_of(t, period, epoch)).collect();
     let in_tran: Vec<bool> = phase.iter().map(|p| p.abs() < q / 2.0).collect();
     let near: Vec<bool> = phase.iter().map(|p| p.abs() < q).collect();
-    let epochs: Vec<i64> = time.iter().map(|&t| ((t - epoch) / period).round() as i64).collect();
+    let epochs: Vec<i64> = time
+        .iter()
+        .map(|&t| ((t - epoch) / period).round() as i64)
+        .collect();
     let mut tran_epochs: Vec<i64> = (0..n).filter(|&i| in_tran[i]).map(|i| epochs[i]).collect();
     tran_epochs.sort();
     tran_epochs.dedup();
     let n_tran = tran_epochs.len();
     let n_in = in_tran.iter().filter(|&&x| x).count();
-    let zpt = mean(&(0..n).filter(|&i| !near[i]).map(|i| flux[i]).collect::<Vec<_>>());
-    let dep = zpt - mean(&(0..n).filter(|&i| in_tran[i]).map(|i| flux[i]).collect::<Vec<_>>());
+    let zpt = mean(
+        &(0..n)
+            .filter(|&i| !near[i])
+            .map(|i| flux[i])
+            .collect::<Vec<_>>(),
+    );
+    let dep = zpt
+        - mean(
+            &(0..n)
+                .filter(|&i| in_tran[i])
+                .map(|i| flux[i])
+                .collect::<Vec<_>>(),
+        );
     let mut cum = vec![0.0; n + 1];
     for i in 0..n {
         cum[i + 1] = cum[i] + flux[i];
@@ -684,9 +949,12 @@ fn ses_mes(time: &[f64], flux: &[f64], period: f64, epoch: f64, duration: f64) -
     let bin_std = std(&bin_means, 0);
     let expected = sig_w * mean(&inv_counts).sqrt();
     let sig_r = (bin_std * bin_std - expected * expected).max(0.0).sqrt();
-    let nbins = ((10.0 / q).max(50.0).min(20000.0)) as usize;
+    let nbins = (10.0 / q).clamp(50.0, 20000.0) as usize;
     let width = ((nbins as f64 * q / 2.0).round() as usize).max(1);
-    let cell: Vec<usize> = phase.iter().map(|p| (((p + 0.5) * nbins as f64).floor() as i64).rem_euclid(nbins as i64) as usize).collect();
+    let cell: Vec<usize> = phase
+        .iter()
+        .map(|p| (((p + 0.5) * nbins as f64).floor() as i64).rem_euclid(nbins as i64) as usize)
+        .collect();
     let mut sums = vec![0.0; nbins];
     let mut hits = vec![0.0; nbins];
     for i in 0..n {
@@ -694,7 +962,13 @@ fn ses_mes(time: &[f64], flux: &[f64], period: f64, epoch: f64, duration: f64) -
         hits[cell[i]] += 1.0;
     }
     let ring = |a: &[f64]| -> Vec<f64> {
-        (0..nbins).map(|b| (0..=2 * width).map(|k| a[(b + nbins + k - width) % nbins]).sum()).collect()
+        (0..nbins)
+            .map(|b| {
+                (0..=2 * width)
+                    .map(|k| a[(b + nbins + k - width) % nbins])
+                    .sum()
+            })
+            .collect()
     };
     let grid_sum = ring(&sums);
     let grid_n = ring(&hits);
@@ -712,13 +986,27 @@ fn ses_mes(time: &[f64], flux: &[f64], period: f64, epoch: f64, duration: f64) -
         }
     }
     let dep_mes: Vec<f64> = (0..nbins).map(|b| zpt - grid_sum[b] / grid_n[b]).collect();
-    let err_mes: Vec<f64> = (0..nbins).map(|b| (sig_w * sig_w / grid_n[b] + sig_r * sig_r / n_transit_mes[b].max(1.0)).sqrt()).collect();
+    let err_mes: Vec<f64> = (0..nbins)
+        .map(|b| (sig_w * sig_w / grid_n[b] + sig_r * sig_r / n_transit_mes[b].max(1.0)).sqrt())
+        .collect();
     let mes_series: Vec<f64> = (0..nbins).map(|b| dep_mes[b] / err_mes[b]).collect();
-    let ses_series: Vec<f64> = (0..n).map(|i| (zpt - mean_t[i]) / (sig_w * sig_w / n_t[i] + sig_r * sig_r).sqrt()).collect();
-    let grid_phase: Vec<f64> = (0..nbins).map(|b| (b as f64 + 0.5) / nbins as f64 - 0.5).collect();
+    let ses_series: Vec<f64> = (0..n)
+        .map(|i| (zpt - mean_t[i]) / (sig_w * sig_w / n_t[i] + sig_r * sig_r).sqrt())
+        .collect();
+    let grid_phase: Vec<f64> = (0..nbins)
+        .map(|b| (b as f64 + 0.5) / nbins as f64 - 0.5)
+        .collect();
     let err = (sig_w * sig_w / n_in.max(1) as f64 + sig_r * sig_r / n_tran.max(1) as f64).sqrt();
-    let finite: Vec<f64> = dep_mes.iter().cloned().filter(|v| v.is_finite()).map(|v| -v).collect();
-    let (f_min, f_max) = (finite.iter().cloned().fold(f64::INFINITY, f64::min), finite.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
+    let finite: Vec<f64> = dep_mes
+        .iter()
+        .cloned()
+        .filter(|v| v.is_finite())
+        .map(|v| -v)
+        .collect();
+    let (f_min, f_max) = (
+        finite.iter().cloned().fold(f64::INFINITY, f64::min),
+        finite.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+    );
     Series {
         q,
         phase,
@@ -733,7 +1021,11 @@ fn ses_mes(time: &[f64], flux: &[f64], period: f64, epoch: f64, duration: f64) -
         sig_w,
         sig_r,
         mes: if err > 0.0 { dep / err } else { f64::NAN },
-        shp: if f_max > f_min { f_max / (f_max - f_min) } else { f64::NAN },
+        shp: if f_max > f_min {
+            f_max / (f_max - f_min)
+        } else {
+            f64::NAN
+        },
         ses_series,
         grid_phase,
         dep_mes,
@@ -742,11 +1034,25 @@ fn ses_mes(time: &[f64], flux: &[f64], period: f64, epoch: f64, duration: f64) -
     }
 }
 
-fn individual_events(time: &[f64], flux: &[f64], period: f64, epoch: f64, duration: f64, s: &Series, out: &mut RoboMetrics) {
+fn individual_events(
+    time: &[f64],
+    flux: &[f64],
+    period: f64,
+    epoch: f64,
+    duration: f64,
+    s: &Series,
+    out: &mut RoboMetrics,
+) {
     let n = time.len();
     let q = s.q;
     let steps: Vec<f64> = time.windows(2).map(|w| w[1] - w[0]).collect();
-    let cadence = median(&steps.iter().cloned().filter(|&x| x > 0.0).collect::<Vec<_>>());
+    let cadence = median(
+        &steps
+            .iter()
+            .cloned()
+            .filter(|&x| x > 0.0)
+            .collect::<Vec<_>>(),
+    );
     let mut at_edge = vec![false; n];
     for (i, &st) in steps.iter().enumerate() {
         if st > GAP_DAYS {
@@ -754,20 +1060,34 @@ fn individual_events(time: &[f64], flux: &[f64], period: f64, epoch: f64, durati
             at_edge[i + 1] = true;
         }
     }
-    let (mut deps, mut errs, mut ses, mut chases, mut rubble) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut deps, mut errs, mut ses, mut chases, mut rubble) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut gapped = 0;
     for &e in &s.tran_epochs {
-        let inside: Vec<usize> = (0..n).filter(|&i| s.in_tran[i] && s.epochs[i] == e).collect();
+        let inside: Vec<usize> = (0..n)
+            .filter(|&i| s.in_tran[i] && s.epochs[i] == e)
+            .collect();
         let dep = s.zpt - mean(&inside.iter().map(|&i| flux[i]).collect::<Vec<_>>());
         let err = (s.sig_w * s.sig_w / inside.len() as f64 + s.sig_r * s.sig_r).sqrt();
         let se = dep / err;
         let centre = epoch + period * e as f64;
         let nearby: Vec<f64> = (0..n)
-            .filter(|&i| s.phase[i].abs() > q && s.phase[i].abs() < 0.1 && s.epochs[i] == e && s.ses_series[i].abs() > 0.7 * se)
+            .filter(|&i| {
+                s.phase[i].abs() > q
+                    && s.phase[i].abs() < 0.1
+                    && s.epochs[i] == e
+                    && s.ses_series[i].abs() > 0.7 * se
+            })
             .map(|i| (time[i] - centre).abs())
             .collect();
-        let ch = if nearby.is_empty() { 1.0 } else { nearby.iter().cloned().fold(f64::INFINITY, f64::min) / (0.1 * period) };
-        let fit: Vec<usize> = (0..n).filter(|&i| s.phase[i].abs() < 2.0 * q && s.epochs[i] == e).collect();
+        let ch = if nearby.is_empty() {
+            1.0
+        } else {
+            nearby.iter().cloned().fold(f64::INFINITY, f64::min) / (0.1 * period)
+        };
+        let fit: Vec<usize> = (0..n)
+            .filter(|&i| s.phase[i].abs() < 2.0 * q && s.epochs[i] == e)
+            .collect();
         let rb = fit.len() as f64 / (4.0 * duration / cadence);
         gapped += fit.iter().any(|&i| at_edge[i]) as usize;
         deps.push(dep);
@@ -778,20 +1098,43 @@ fn individual_events(time: &[f64], flux: &[f64], period: f64, epoch: f64, durati
     }
     let n_tran = s.n_tran;
     let (chi, chi2) = if n_tran > 1 {
-        let chi2: f64 = (0..n_tran).map(|i| { let exp = s.dep / errs[i]; (ses[i] - exp).powi(2) / exp }).sum();
-        (if chi2 > 0.0 { s.mes / (chi2 / (n_tran - 1) as f64).sqrt() } else { f64::NAN }, chi2)
+        let chi2: f64 = (0..n_tran)
+            .map(|i| {
+                let exp = s.dep / errs[i];
+                (ses[i] - exp).powi(2) / exp
+            })
+            .sum();
+        (
+            if chi2 > 0.0 {
+                s.mes / (chi2 / (n_tran - 1) as f64).sqrt()
+            } else {
+                f64::NAN
+            },
+            chi2,
+        )
     } else {
         (f64::NAN, f64::NAN)
     };
     let _ = chi2;
-    let bad: Vec<bool> = (0..n_tran).map(|i| rubble[i] <= RUBBLE || ses[i] < 0.0 || (n_tran <= 5 && chases[i] < CHASES_BAD)).collect();
-    let good_epochs: Vec<i64> = (0..n_tran).filter(|&i| !bad[i]).map(|i| s.tran_epochs[i]).collect();
-    let keep: Vec<usize> = (0..n).filter(|&i| s.in_tran[i] && good_epochs.binary_search(&s.epochs[i]).is_ok()).collect();
+    let bad: Vec<bool> = (0..n_tran)
+        .map(|i| rubble[i] <= RUBBLE || ses[i] < 0.0 || (n_tran <= 5 && chases[i] < CHASES_BAD))
+        .collect();
+    let good_epochs: Vec<i64> = (0..n_tran)
+        .filter(|&i| !bad[i])
+        .map(|i| s.tran_epochs[i])
+        .collect();
+    let keep: Vec<usize> = (0..n)
+        .filter(|&i| s.in_tran[i] && good_epochs.binary_search(&s.epochs[i]).is_ok())
+        .collect();
     let (new_n, new_mes) = if keep.is_empty() {
         (0, 0.0)
     } else {
         let new_n = good_epochs.len();
-        ((new_n), (s.zpt - mean(&keep.iter().map(|&i| flux[i]).collect::<Vec<_>>())) / (s.sig_w * s.sig_w / keep.len() as f64 + s.sig_r * s.sig_r / new_n as f64).sqrt())
+        (
+            (new_n),
+            (s.zpt - mean(&keep.iter().map(|&i| flux[i]).collect::<Vec<_>>()))
+                / (s.sig_w * s.sig_w / keep.len() as f64 + s.sig_r * s.sig_r / new_n as f64).sqrt(),
+        )
     };
     let med = median(&deps);
     out.event_ses = ses.clone();
@@ -800,7 +1143,11 @@ fn individual_events(time: &[f64], flux: &[f64], period: f64, epoch: f64, durati
     out.rubble = rubble;
     out.mean_chases = mean(&chases);
     out.chi = chi;
-    out.dmm = if med != 0.0 { mean(&deps) / med } else { f64::NAN };
+    out.dmm = if med != 0.0 {
+        mean(&deps) / med
+    } else {
+        f64::NAN
+    };
     out.max_ses = ses.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     out.n_gap = gapped;
     out.new_n_transit = new_n;
@@ -826,28 +1173,65 @@ fn uniqueness(flux: &[f64], s: &Series, out: &mut RoboMetrics) {
     out.fred = f64::NAN;
     let nb = s.grid_phase.len();
     let finite: Vec<bool> = s.mes_series.iter().map(|v| v.is_finite()).collect();
-    let inside: Vec<usize> = (0..nb).filter(|&b| finite[b] && s.grid_phase[b].abs() < q / 2.0).collect();
-    let Some(&i) = inside.iter().max_by(|&&a, &&b| s.mes_series[a].partial_cmp(&s.mes_series[b]).unwrap()) else { return };
+    let inside: Vec<usize> = (0..nb)
+        .filter(|&b| finite[b] && s.grid_phase[b].abs() < q / 2.0)
+        .collect();
+    let Some(&i) = inside
+        .iter()
+        .max_by(|&&a, &&b| s.mes_series[a].partial_cmp(&s.mes_series[b]).unwrap())
+    else {
+        return;
+    };
     out.sig_pri = s.mes_series[i];
     let pri = s.grid_phase[i];
-    let free: Vec<usize> = (0..nb).filter(|&b| finite[b] && dist(s.grid_phase[b], pri) >= 2.0 * q).collect();
-    let Some(&j) = free.iter().max_by(|&&a, &&b| s.mes_series[a].partial_cmp(&s.mes_series[b]).unwrap()) else { return };
+    let free: Vec<usize> = (0..nb)
+        .filter(|&b| finite[b] && dist(s.grid_phase[b], pri) >= 2.0 * q)
+        .collect();
+    let Some(&j) = free
+        .iter()
+        .max_by(|&&a, &&b| s.mes_series[a].partial_cmp(&s.mes_series[b]).unwrap())
+    else {
+        return;
+    };
     out.sig_sec = s.mes_series[j];
     out.dep_sec = s.dep_mes[j];
     out.err_sec = s.err_mes[j];
     out.phs_sec = s.grid_phase[j];
     let sec = s.grid_phase[j];
-    let rest: Vec<f64> = free.iter().filter(|&&b| dist(s.grid_phase[b], sec) >= q).map(|&b| s.dep_mes[b]).collect();
-    let points: Vec<f64> = (0..flux.len()).filter(|&i| dist(s.phase[i], pri) >= 2.0 * q && dist(s.phase[i], sec) >= q).map(|i| flux[i]).collect();
+    let rest: Vec<f64> = free
+        .iter()
+        .filter(|&&b| dist(s.grid_phase[b], sec) >= q)
+        .map(|&b| s.dep_mes[b])
+        .collect();
+    let points: Vec<f64> = (0..flux.len())
+        .filter(|&i| dist(s.phase[i], pri) >= 2.0 * q && dist(s.phase[i], sec) >= q)
+        .map(|i| flux[i])
+        .collect();
     if !rest.is_empty() && !points.is_empty() && std(&points, 0) > 0.0 {
         out.fred = (s.n_in as f64).sqrt() * std(&rest, 0) / std(&points, 0);
     }
-    let free2: Vec<usize> = free.iter().cloned().filter(|&b| dist(s.grid_phase[b], sec) >= 2.0 * q).collect();
+    let free2: Vec<usize> = free
+        .iter()
+        .cloned()
+        .filter(|&b| dist(s.grid_phase[b], sec) >= 2.0 * q)
+        .collect();
     if !free2.is_empty() {
-        out.sig_ter = free2.iter().map(|&b| s.mes_series[b]).fold(f64::NEG_INFINITY, f64::max);
+        out.sig_ter = free2
+            .iter()
+            .map(|&b| s.mes_series[b])
+            .fold(f64::NEG_INFINITY, f64::max);
     }
-    let far: Vec<usize> = (0..nb).filter(|&b| finite[b] && dist(s.grid_phase[b], pri) >= 3.0 * q && dist(s.grid_phase[b], sec) >= 3.0 * q).collect();
-    if let Some(&k) = far.iter().max_by(|&&a, &&b| (-s.mes_series[a]).partial_cmp(&-s.mes_series[b]).unwrap()) {
+    let far: Vec<usize> = (0..nb)
+        .filter(|&b| {
+            finite[b]
+                && dist(s.grid_phase[b], pri) >= 3.0 * q
+                && dist(s.grid_phase[b], sec) >= 3.0 * q
+        })
+        .collect();
+    if let Some(&k) = far
+        .iter()
+        .max_by(|&&a, &&b| (-s.mes_series[a]).partial_cmp(&-s.mes_series[b]).unwrap())
+    {
         out.sig_pos = -s.mes_series[k];
         out.phs_pos = s.grid_phase[k];
     }
@@ -861,9 +1245,18 @@ fn sweet(time: &[f64], flux: &[f64], period: f64, epoch: f64, exclude: &[bool]) 
     let f: Vec<f64> = idx.iter().map(|&i| flux[i]).collect();
     let mut best = (0.0, f64::NAN, 0.0);
     for per in [period / 2.0, period, 2.0 * period] {
-        let w: Vec<f64> = t.iter().map(|x| 2.0 * std::f64::consts::PI * (x - epoch) / per).collect();
-        let design = vec![vec![1.0; t.len()], w.iter().map(|x| x.sin()).collect(), w.iter().map(|x| x.cos()).collect()];
-        let Some((coef, cov, _)) = lstsq(&design, &f) else { continue };
+        let w: Vec<f64> = t
+            .iter()
+            .map(|x| 2.0 * std::f64::consts::PI * (x - epoch) / per)
+            .collect();
+        let design = vec![
+            vec![1.0; t.len()],
+            w.iter().map(|x| x.sin()).collect(),
+            w.iter().map(|x| x.cos()).collect(),
+        ];
+        let Some((coef, cov, _)) = lstsq(&design, &f) else {
+            continue;
+        };
         let amp = coef[1].hypot(coef[2]);
         if amp == 0.0 {
             continue;
@@ -891,7 +1284,9 @@ fn aic(chi2: f64, n: usize, k: usize) -> f64 {
 /// and the half-durations fitted on each side with the trapezoid otherwise fixed.
 fn model_comparison(flux: &[f64], period: f64, duration: f64, s: &Series, out: &mut RoboMetrics) {
     let (q, sig) = (s.q, s.sig_w);
-    let zone: Vec<usize> = (0..flux.len()).filter(|&i| s.phase[i].abs() < 2.0 * q).collect();
+    let zone: Vec<usize> = (0..flux.len())
+        .filter(|&i| s.phase[i].abs() < 2.0 * q)
+        .collect();
     let x: Vec<f64> = zone.iter().map(|&i| s.phase[i] * period).collect();
     let f: Vec<f64> = zone.iter().map(|&i| flux[i]).collect();
     let n = f.len();
@@ -911,44 +1306,101 @@ fn model_comparison(flux: &[f64], period: f64, duration: f64, s: &Series, out: &
     out.line_chisqr = chi_line / (n - 1) as f64;
     let start = [s.dep.max(1e-6), duration, 0.2, s.zpt, 0.0];
     let lower = [0.0, 0.3 * duration, 0.01, f64::NEG_INFINITY, -0.1 * period];
-    let upper = [1.0, (2.5 * duration).min(period / 2.0), 0.5, f64::INFINITY, 0.1 * period];
-    let (p, r, _) = least_squares(|p| x.iter().zip(&f).map(|(&xi, &fi)| (trapezoid_model(xi - p[4], p[0], p[1], p[2], p[3]) - fi) / sig).collect(), &start, &lower, &upper);
+    let upper = [
+        1.0,
+        (2.5 * duration).min(period / 2.0),
+        0.5,
+        f64::INFINITY,
+        0.1 * period,
+    ];
+    let (p, r, _) = least_squares(
+        |p| {
+            x.iter()
+                .zip(&f)
+                .map(|(&xi, &fi)| (trapezoid_model(xi - p[4], p[0], p[1], p[2], p[3]) - fi) / sig)
+                .collect()
+        },
+        &start,
+        &lower,
+        &upper,
+    );
     let chi_trap: f64 = r.iter().map(|v| v * v).sum();
     out.trap_aic = aic(chi_trap, n, 5);
     out.trap_chisqr = chi_trap / (n.saturating_sub(5)).max(1) as f64;
     let (depth, total, ingress, zpt, shift) = (p[0], p[1], p[2], p[3], p[4]);
     let mut sides: Vec<(f64, f64)> = Vec::new();
     for left in [true, false] {
-        let sel: Vec<usize> = (0..n).filter(|&i| if left { x[i] - shift < 0.0 } else { x[i] - shift > 0.0 }).collect();
+        let sel: Vec<usize> = (0..n)
+            .filter(|&i| {
+                if left {
+                    x[i] - shift < 0.0
+                } else {
+                    x[i] - shift > 0.0
+                }
+            })
+            .collect();
         if sel.len() < 10 {
             break;
         }
         let xs: Vec<f64> = sel.iter().map(|&i| x[i] - shift).collect();
         let fs: Vec<f64> = sel.iter().map(|&i| f[i]).collect();
-        let (ph, rh, jh) = least_squares(|p| xs.iter().zip(&fs).map(|(&xi, &fi)| (trapezoid_model(xi, depth, p[0], ingress, zpt) - fi) / sig).collect(), &[total], &[0.3 * duration], &[(2.5 * duration).min(period / 2.0)]);
+        let (ph, rh, jh) = least_squares(
+            |p| {
+                xs.iter()
+                    .zip(&fs)
+                    .map(|(&xi, &fi)| (trapezoid_model(xi, depth, p[0], ingress, zpt) - fi) / sig)
+                    .collect()
+            },
+            &[total],
+            &[0.3 * duration],
+            &[(2.5 * duration).min(period / 2.0)],
+        );
         let curvature: f64 = jh[0].iter().map(|v| v * v).sum();
         let cost: f64 = rh.iter().map(|v| v * v).sum::<f64>() / 2.0;
-        let err = if curvature > 0.0 { (2.0 * cost / (xs.len() - 1).max(1) as f64 / curvature).sqrt() } else { f64::NAN };
+        let err = if curvature > 0.0 {
+            (2.0 * cost / (xs.len() - 1).max(1) as f64 / curvature).sqrt()
+        } else {
+            f64::NAN
+        };
         sides.push((ph[0], err));
     }
     if sides.len() == 2 {
         let ((tl, el), (tr, er)) = (sides[0], sides[1]);
         out.trap_total_left = tl;
         out.trap_total_right = tr;
-        out.asym_sigma = if el > 0.0 && er > 0.0 { (tl - tr).abs() / el.hypot(er) } else { f64::NAN };
+        out.asym_sigma = if el > 0.0 && er > 0.0 {
+            (tl - tr).abs() / el.hypot(er)
+        } else {
+            f64::NAN
+        };
     }
 }
 
 /// Every flux metric of one signal; `flux` is the detrended curve, `raw` the
 /// normalised PDCSAP flux on the same cadences (NaN where missing).
-pub fn robo_metrics(time: &[f64], flux: &[f64], raw: &[f64], period: f64, epoch: f64, duration: f64) -> RoboMetrics {
+pub fn robo_metrics(
+    time: &[f64],
+    flux: &[f64],
+    raw: &[f64],
+    period: f64,
+    epoch: f64,
+    duration: f64,
+) -> RoboMetrics {
     let mut order: Vec<usize> = (0..time.len()).collect();
     order.sort_by(|&a, &b| time[a].partial_cmp(&time[b]).unwrap());
     let time: Vec<f64> = order.iter().map(|&i| time[i]).collect();
     let flux: Vec<f64> = order.iter().map(|&i| flux[i]).collect();
     let raw: Vec<f64> = order.iter().map(|&i| raw[i]).collect();
     let s = ses_mes(&time, &flux, period, epoch, duration);
-    let mut out = RoboMetrics { mes: s.mes, shp: s.shp, sig_w: s.sig_w, sig_r: s.sig_r, n_tran: s.n_tran, n_in: s.n_in, ..Default::default() };
+    let mut out = RoboMetrics {
+        mes: s.mes,
+        shp: s.shp,
+        sig_w: s.sig_w,
+        sig_r: s.sig_r,
+        n_tran: s.n_tran,
+        n_in: s.n_in,
+        ..Default::default()
+    };
     individual_events(&time, &flux, period, epoch, duration, &s, &mut out);
     uniqueness(&flux, &s, &mut out);
     let (a, e, sg) = sweet(&time, &flux, period, epoch, &s.near);
@@ -995,7 +1447,16 @@ impl Thresholds {
 
 /// Verdicts from the flux metrics: flag name -> fail/warn.
 #[allow(clippy::too_many_arguments)]
-pub fn robo_flags(m: &RoboMetrics, period: f64, depth: f64, radius_earth: Option<f64>, albedo: Option<f64>, impact: Option<f64>, radius_ratio: Option<f64>, max_radius: f64) -> BTreeMap<String, String> {
+pub fn robo_flags(
+    m: &RoboMetrics,
+    period: f64,
+    depth: f64,
+    radius_earth: Option<f64>,
+    albedo: Option<f64>,
+    impact: Option<f64>,
+    radius_ratio: Option<f64>,
+    max_radius: f64,
+) -> BTreeMap<String, String> {
     let mut f = BTreeMap::new();
     let nan = |v: f64| v.is_nan();
     let fail = |f: &mut BTreeMap<String, String>, k: &str| {
@@ -1027,7 +1488,15 @@ pub fn robo_flags(m: &RoboMetrics, period: f64, depth: f64, radius_earth: Option
     if m.n_tran <= 10 && m.mes > 0.0 && m.max_ses / m.mes > Thresholds::MAX_SES_TO_MES {
         fail(&mut f, "single_event_dominates");
     }
-    if nan(m.trap_aic) || m.trap_chisqr > m.line_chisqr || (m.trap_aic - m.line_aic) > if m.n_tran <= 10 { Thresholds::AIC1 } else { Thresholds::AIC2 } {
+    if nan(m.trap_aic)
+        || m.trap_chisqr > m.line_chisqr
+        || (m.trap_aic - m.line_aic)
+            > if m.n_tran <= 10 {
+                Thresholds::AIC1
+            } else {
+                Thresholds::AIC2
+            }
+    {
         fail(&mut f, "bad_fit");
     }
     if m.sine_sig > Thresholds::SWEET && period < 10.0 {
@@ -1053,15 +1522,18 @@ pub fn robo_flags(m: &RoboMetrics, period: f64, depth: f64, radius_earth: Option
         let ms4 = (m.sig_sec / m.fred - m.fa1) > Thresholds::MS4 || m.fred > 1.8;
         let ms5 = nan(m.sig_ter) || (m.sig_sec - m.sig_ter - m.fa2) > Thresholds::MS5;
         let ms6 = nan(m.sig_pos) || (m.sig_sec - m.sig_pos - m.fa2) > Thresholds::MS6;
-        let planet_like = radius_earth.is_some_and(|r| r < max_radius) && albedo.is_some_and(|a| a < 1.0) && m.dep_sec < 0.1 * depth && impact.is_none_or(|b| b < 0.95);
+        let planet_like = radius_earth.is_some_and(|r| r < max_radius)
+            && albedo.is_some_and(|a| a < 1.0)
+            && m.dep_sec < 0.1 * depth
+            && impact.is_none_or(|b| b < 0.95);
         if ms4 && (ms5 || ms6) && !planet_like {
             fail(&mut f, "secondary");
         }
     }
-    if let (Some(b), Some(k)) = (impact, radius_ratio) {
-        if b + k > Thresholds::V_SHAPE {
-            fail(&mut f, "v_shape");
-        }
+    if let (Some(b), Some(k)) = (impact, radius_ratio)
+        && b + k > Thresholds::V_SHAPE
+    {
+        fail(&mut f, "v_shape");
     }
     f
 }
@@ -1072,11 +1544,21 @@ mod tests {
 
     fn synthetic(depth: f64, period: f64, duration: f64, noise: f64) -> (Vec<f64>, Vec<f64>) {
         let mut rng = Rng::new(7);
-        let t: Vec<f64> = (0..20000).map(|i| 2458000.0 + i as f64 * 2.0 / 1440.0).collect();
-        let f: Vec<f64> = t.iter().map(|&x| {
-            let ph = wrap(x - 2458001.3, period);
-            rng.normal(0.0, noise) - if ph.abs() < duration / 2.0 { depth } else { 0.0 }
-        }).collect();
+        let t: Vec<f64> = (0..20000)
+            .map(|i| 2458000.0 + i as f64 * 2.0 / 1440.0)
+            .collect();
+        let f: Vec<f64> = t
+            .iter()
+            .map(|&x| {
+                let ph = wrap(x - 2458001.3, period);
+                rng.normal(0.0, noise)
+                    - if ph.abs() < duration / 2.0 {
+                        depth
+                    } else {
+                        0.0
+                    }
+            })
+            .collect();
         (t, f)
     }
 
@@ -1085,10 +1567,19 @@ mod tests {
         let (t, f) = synthetic(0.003, 2.5, 0.1, 0.0005);
         let sector = vec![1i64; t.len()];
         let prep = fold(&t, &f, &sector, 2.5, 2458001.3, 2.4, &[]).unwrap();
-        let star = StarParameters { radius: Some(1.0), teff: Some(5700.0), logg: Some(4.4), tmag: Some(10.0) };
+        let star = StarParameters {
+            radius: Some(1.0),
+            teff: Some(5700.0),
+            logg: Some(4.4),
+            tmag: Some(10.0),
+        };
         let m = measure(&prep, &star, None, None, Some(0.95), &BTreeMap::new(), None);
         assert!(m.snr.unwrap() > 7.1, "snr {:?}", m.snr);
-        assert!((m.depth_ppm.unwrap() - 3000.0).abs() < 300.0, "depth {:?}", m.depth_ppm);
+        assert!(
+            (m.depth_ppm.unwrap() - 3000.0).abs() < 300.0,
+            "depth {:?}",
+            m.depth_ppm
+        );
         assert!(m.transits >= 5);
         assert_eq!(m.verdict, "pass", "{:?}", m.flags);
         let (t, f) = synthetic(0.0, 2.5, 0.1, 0.0005);
@@ -1101,14 +1592,37 @@ mod tests {
     #[test]
     fn odd_even_difference_is_flagged() {
         let mut rng = Rng::new(3);
-        let t: Vec<f64> = (0..30000).map(|i| 2458000.0 + i as f64 * 2.0 / 1440.0).collect();
-        let f: Vec<f64> = t.iter().map(|&x| {
-            let ph = wrap(x - 2458001.0, 2.0);
-            let k = ((x - 2458001.0) / 2.0).round() as i64;
-            rng.normal(0.0, 0.0003) - if ph.abs() < 0.05 { if k % 2 == 0 { 0.004 } else { 0.001 } } else { 0.0 }
-        }).collect();
+        let t: Vec<f64> = (0..30000)
+            .map(|i| 2458000.0 + i as f64 * 2.0 / 1440.0)
+            .collect();
+        let f: Vec<f64> = t
+            .iter()
+            .map(|&x| {
+                let ph = wrap(x - 2458001.0, 2.0);
+                let k = ((x - 2458001.0) / 2.0).round() as i64;
+                rng.normal(0.0, 0.0003)
+                    - if ph.abs() < 0.05 {
+                        if k % 2 == 0 { 0.004 } else { 0.001 }
+                    } else {
+                        0.0
+                    }
+            })
+            .collect();
         let prep = fold(&t, &f, &vec![1; t.len()], 2.0, 2458001.0, 2.4, &[]).unwrap();
-        let m = measure(&prep, &StarParameters::default(), None, None, None, &BTreeMap::new(), None);
-        assert_eq!(m.flags.get("odd_even").map(String::as_str), Some(FAIL), "{:?}", m.flags);
+        let m = measure(
+            &prep,
+            &StarParameters::default(),
+            None,
+            None,
+            None,
+            &BTreeMap::new(),
+            None,
+        );
+        assert_eq!(
+            m.flags.get("odd_even").map(String::as_str),
+            Some(FAIL),
+            "{:?}",
+            m.flags
+        );
     }
 }

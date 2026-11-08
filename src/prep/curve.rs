@@ -97,7 +97,9 @@ pub fn fit_segment_noise(
     let zeros = vec![0i64; n];
     let group: &[i64] = group.unwrap_or(&zeros);
     let mut keep: Vec<usize> = (0..n)
-        .filter(|&i| time[i].is_finite() && flux[i].is_finite() && err_in[i].is_finite() && err_in[i] > 0.0)
+        .filter(|&i| {
+            time[i].is_finite() && flux[i].is_finite() && err_in[i].is_finite() && err_in[i] > 0.0
+        })
         .collect();
     let t_keep: Vec<f64> = keep.iter().map(|&i| time[i]).collect();
     let order = argsort(&t_keep);
@@ -130,7 +132,11 @@ pub fn fit_segment_noise(
     }
     if bin_minutes > 0.0 {
         let width = bin_minutes / 1440.0;
-        let keys: Vec<(i64, i64)> = t.iter().zip(&sec).map(|(x, s)| ((x / width).floor() as i64, *s)).collect();
+        let keys: Vec<(i64, i64)> = t
+            .iter()
+            .zip(&sec)
+            .map(|(x, s)| ((x / width).floor() as i64, *s))
+            .collect();
         let (unique, inv) = unique_inverse(&keys);
         let m = unique.len();
         let mut den = vec![0.0; m];
@@ -174,13 +180,30 @@ pub fn fit_segment_noise(
         let white = (1.4826 / 2f64.sqrt() * median_lower(&dev)).max(1e-12);
         vec![white * white; n]
     };
-    let segments = 1 + (1..n).filter(|&i| t[i] - t[i - 1] > gap_days || sec[i] != sec[i - 1]).count();
-    Ok(DiagonalNoise { time: t, deficit: f.iter().map(|x| -x).collect(), variance, origin, inflation, segments })
+    let segments = 1
+        + (1..n)
+            .filter(|&i| t[i] - t[i - 1] > gap_days || sec[i] != sec[i - 1])
+            .count();
+    Ok(DiagonalNoise {
+        time: t,
+        deficit: f.iter().map(|x| -x).collect(),
+        variance,
+        origin,
+        inflation,
+        segments,
+    })
 }
 
 /// Tukey biweight location in a sliding time window per gap-separated segment.
 /// Returns (1 + f) / trend - 1.
-pub fn biweight_flatten(time: &[f64], relative_flux: &[f64], window: f64, gap: f64, c: f64, iterations: usize) -> Vec<f64> {
+pub fn biweight_flatten(
+    time: &[f64],
+    relative_flux: &[f64],
+    window: f64,
+    gap: f64,
+    c: f64,
+    iterations: usize,
+) -> Vec<f64> {
     let n = time.len();
     let flux: Vec<f64> = relative_flux.iter().map(|x| 1.0 + x).collect();
     let mut out = vec![0.0; n];
@@ -241,7 +264,12 @@ pub fn segment_edges(time: &[f64], gap: f64) -> Vec<f64> {
 
 /// Groups durations by detrending window clamp(factor * D, minimum, maximum),
 /// rounded to 1e-6 days. Returns (window, duration indices) sorted by window.
-pub fn detrending_windows(durations: &[f64], minimum: f64, factor: f64, maximum: f64) -> Vec<(f64, Vec<usize>)> {
+pub fn detrending_windows(
+    durations: &[f64],
+    minimum: f64,
+    factor: f64,
+    maximum: f64,
+) -> Vec<(f64, Vec<usize>)> {
     let windows: Vec<f64> = durations
         .iter()
         .map(|d| ((factor * d).clamp(minimum, maximum) * 1e6).round() / 1e6)
@@ -250,7 +278,12 @@ pub fn detrending_windows(durations: &[f64], minimum: f64, factor: f64, maximum:
     uniq.sort_by(|a, b| a.partial_cmp(b).unwrap());
     uniq.dedup();
     uniq.into_iter()
-        .map(|w| (w, (0..durations.len()).filter(|&i| windows[i] == w).collect()))
+        .map(|w| {
+            (
+                w,
+                (0..durations.len()).filter(|&i| windows[i] == w).collect(),
+            )
+        })
         .collect()
 }
 
@@ -266,17 +299,34 @@ pub struct PrepConfig {
 /// One detrended curve per duration family. Positive outliers above
 /// `clip_sigma` robust scatter and observations within `edge_trim` windows of a
 /// segment edge are dropped.
-pub fn prepare_families(obs: &Observations, durations: &[f64], cfg: &PrepConfig) -> Result<Vec<(PreparedCurve, Vec<usize>)>, String> {
-    let diag = fit_segment_noise(&obs.time, &obs.flux, obs.err.as_deref(), Some(&obs.group), cfg.bin_minutes, 0.75)?;
+pub fn prepare_families(
+    obs: &Observations,
+    durations: &[f64],
+    cfg: &PrepConfig,
+) -> Result<Vec<(PreparedCurve, Vec<usize>)>, String> {
+    let diag = fit_segment_noise(
+        &obs.time,
+        &obs.flux,
+        obs.err.as_deref(),
+        Some(&obs.group),
+        cfg.bin_minutes,
+        0.75,
+    )?;
     let sigma: Vec<f64> = diag.variance.iter().map(|v| v.sqrt()).collect();
     let edge = segment_edges(&diag.time, 0.5);
     let relative: Vec<f64> = diag.deficit.iter().map(|d| -d).collect();
     let mut out = Vec::new();
-    for (window, indices) in detrending_windows(durations, cfg.window_min, cfg.window_factor, cfg.window_max) {
+    for (window, indices) in
+        detrending_windows(durations, cfg.window_min, cfg.window_factor, cfg.window_max)
+    {
         let flat = biweight_flatten(&diag.time, &relative, window, 0.5, 5.0, 10);
         let scale = mad_scale(&flat);
         let keep: Vec<usize> = (0..flat.len())
-            .filter(|&i| flat[i].is_finite() && flat[i] <= cfg.clip_sigma * scale && edge[i] >= cfg.edge_trim * window)
+            .filter(|&i| {
+                flat[i].is_finite()
+                    && flat[i] <= cfg.clip_sigma * scale
+                    && edge[i] >= cfg.edge_trim * window
+            })
             .collect();
         let curve = PreparedCurve {
             time: keep.iter().map(|&i| diag.time[i] + diag.origin).collect(),
@@ -304,19 +354,35 @@ pub fn prepare_ready(model: &DiagonalNoise) -> Result<Ready, String> {
     let mean = py.iter().sum::<f64>() / c;
     let v: Vec<f64> = (0..n).map(|i| py[i] - p[i] * mean).collect();
     let residual_energy = (0..n).map(|i| model.deficit[i] * v[i]).sum();
-    Ok(Ready { time: model.time.clone(), origin: model.origin, w: p.clone(), p, v, baseline_norm: c, residual_energy })
+    Ok(Ready {
+        time: model.time.clone(),
+        origin: model.origin,
+        w: p.clone(),
+        p,
+        v,
+        baseline_norm: c,
+        residual_energy,
+    })
 }
 
 /// Per-duration correlated-noise factor rho_D >= 1: robust scatter of the
 /// standardized inverse-variance means of residuals in contiguous bins of
 /// length D. Under-sampled durations inherit sqrt(D/D_ref) scaling from the
 /// nearest supported duration, floored by their own measured scatter.
-pub fn correlated_noise_factors(time: &[f64], residual: &[f64], sigma: &[f64], durations: &[f64]) -> Vec<f64> {
+pub fn correlated_noise_factors(
+    time: &[f64],
+    residual: &[f64],
+    sigma: &[f64],
+    durations: &[f64],
+) -> Vec<f64> {
     let min_fill = 0.5;
     let minimum_bins = 20usize;
     let n = time.len();
     let weights: Vec<f64> = sigma.iter().map(|s| 1.0 / (s * s)).collect();
-    let steps: Vec<f64> = (1..n).map(|i| time[i] - time[i - 1]).filter(|&s| s > 0.0).collect();
+    let steps: Vec<f64> = (1..n)
+        .map(|i| time[i] - time[i - 1])
+        .filter(|&s| s > 0.0)
+        .collect();
     let cadence = median_lower(&steps);
     let mut measured = Vec::new();
     let mut counts = Vec::new();
@@ -336,9 +402,18 @@ pub fn correlated_noise_factors(time: &[f64], residual: &[f64], sigma: &[f64], d
             .collect();
         counts.push(z.len());
         if std::env::var_os("FBLS_DEBUG").is_some() {
-            eprintln!("rho debug: duration={d} cadence={cadence} bins={} usable={} fill_threshold={}", map.len(), z.len(), min_fill * d / cadence);
+            eprintln!(
+                "rho debug: duration={d} cadence={cadence} bins={} usable={} fill_threshold={}",
+                map.len(),
+                z.len(),
+                min_fill * d / cadence
+            );
         }
-        measured.push(if z.len() >= 3 { mad_scale(&z).max(1.0) } else { 1.0 });
+        measured.push(if z.len() >= 3 {
+            mad_scale(&z).max(1.0)
+        } else {
+            1.0
+        });
     }
     let supported: Vec<bool> = counts.iter().map(|&c| c >= minimum_bins).collect();
     let inherited: Vec<f64> = if supported.iter().any(|&s| s) {
@@ -349,7 +424,10 @@ pub fn correlated_noise_factors(time: &[f64], residual: &[f64], sigma: &[f64], d
                 let anchor = *valid
                     .iter()
                     .min_by(|&&a, &&b| {
-                        (d.ln() - durations[a].ln()).abs().partial_cmp(&(d.ln() - durations[b].ln()).abs()).unwrap()
+                        (d.ln() - durations[a].ln())
+                            .abs()
+                            .partial_cmp(&(d.ln() - durations[b].ln()).abs())
+                            .unwrap()
                     })
                     .unwrap();
                 measured[anchor] * (d / durations[anchor]).max(1.0).sqrt()
@@ -358,12 +436,28 @@ pub fn correlated_noise_factors(time: &[f64], residual: &[f64], sigma: &[f64], d
     } else {
         let standardized: Vec<f64> = (0..n).map(|i| residual[i] / sigma[i]).collect();
         let scatter = mad_scale(&standardized).max(1.0);
-        durations.iter().map(|&d| scatter * (d / cadence).max(1.0).sqrt()).collect()
+        durations
+            .iter()
+            .map(|&d| scatter * (d / cadence).max(1.0).sqrt())
+            .collect()
     };
-    (0..durations.len()).map(|i| if supported[i] { measured[i] } else { measured[i].max(inherited[i]) }).collect()
+    (0..durations.len())
+        .map(|i| {
+            if supported[i] {
+                measured[i]
+            } else {
+                measured[i].max(inherited[i])
+            }
+        })
+        .collect()
 }
 
-pub fn family_state(curve: PreparedCurve, durations: &[f64], indices: &[usize], correlated: bool) -> Result<FamilyState, String> {
+pub fn family_state(
+    curve: PreparedCurve,
+    durations: &[f64],
+    indices: &[usize],
+    correlated: bool,
+) -> Result<FamilyState, String> {
     let flux1: Vec<f64> = curve.flux.iter().map(|f| 1.0 + f).collect();
     let model = fit_segment_noise(&curve.time, &flux1, Some(&curve.sigma), None, 0.0, 0.75)?;
     let ready = prepare_ready(&model)?;
@@ -374,12 +468,28 @@ pub fn family_state(curve: PreparedCurve, durations: &[f64], indices: &[usize], 
     } else {
         vec![1.0; durations.len()]
     };
-    let noise = NoiseSummary { inflation: model.inflation, segments: model.segments };
-    Ok(FamilyState { curve, durations: durations.to_vec(), indices: indices.to_vec(), ready, rho, noise })
+    let noise = NoiseSummary {
+        inflation: model.inflation,
+        segments: model.segments,
+    };
+    Ok(FamilyState {
+        curve,
+        durations: durations.to_vec(),
+        indices: indices.to_vec(),
+        ready,
+        rho,
+        noise,
+    })
 }
 
 /// Observations within (1 + margin) * duration / 2 of predicted transit centers.
-pub fn transit_mask(time: &[f64], period: f64, epoch: f64, duration: f64, margin: f64) -> Vec<bool> {
+pub fn transit_mask(
+    time: &[f64],
+    period: f64,
+    epoch: f64,
+    duration: f64,
+    margin: f64,
+) -> Vec<bool> {
     time.iter()
         .map(|&t| {
             let phase = (t - epoch + period / 2.0).rem_euclid(period) - period / 2.0;
@@ -388,7 +498,13 @@ pub fn transit_mask(time: &[f64], period: f64, epoch: f64, duration: f64, margin
         .collect()
 }
 
-pub fn mask_curve(curve: &PreparedCurve, period: f64, epoch: f64, duration: f64, margin: f64) -> PreparedCurve {
+pub fn mask_curve(
+    curve: &PreparedCurve,
+    period: f64,
+    epoch: f64,
+    duration: f64,
+    margin: f64,
+) -> PreparedCurve {
     let m = transit_mask(&curve.time, period, epoch, duration, margin);
     let keep: Vec<usize> = (0..m.len()).filter(|&i| !m[i]).collect();
     PreparedCurve {
@@ -424,7 +540,10 @@ mod tests {
         let t: Vec<f64> = (0..2000).map(|i| i as f64 * 0.01).collect();
         let trend: Vec<f64> = t.iter().map(|x| 0.01 * (x / 5.0).sin()).collect();
         let flat = biweight_flatten(&t, &trend, 0.5, 0.5, 5.0, 10);
-        let worst = flat[100..1900].iter().cloned().fold(0.0, |m: f64, x| m.max(x.abs()));
+        let worst = flat[100..1900]
+            .iter()
+            .cloned()
+            .fold(0.0, |m: f64, x| m.max(x.abs()));
         assert!(worst < 5e-5, "residual trend {worst}");
     }
 
@@ -432,7 +551,9 @@ mod tests {
     fn noise_model_normalizes_and_inflates() {
         let n = 500;
         let t: Vec<f64> = (0..n).map(|i| 1000.0 + i as f64 * 0.01).collect();
-        let f: Vec<f64> = (0..n).map(|i| 2000.0 + 3.0 * (i as f64 * 1.7).sin()).collect();
+        let f: Vec<f64> = (0..n)
+            .map(|i| 2000.0 + 3.0 * (i as f64 * 1.7).sin())
+            .collect();
         let e = vec![1.0; n];
         let m = fit_segment_noise(&t, &f, Some(&e), None, 0.0, 0.75).unwrap();
         assert_eq!(m.origin, 1000.0);
@@ -440,8 +561,16 @@ mod tests {
         let mut sorted = f.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let median = sorted[(n - 1) / 2];
-        assert!((m.deficit[0] - (1.0 - f[0] / median)).abs() < 1e-12, "deficit[0] = {}", m.deficit[0]);
-        assert!(m.inflation > 2.0, "adjacent differences of several units must inflate the unit errors: {}", m.inflation);
+        assert!(
+            (m.deficit[0] - (1.0 - f[0] / median)).abs() < 1e-12,
+            "deficit[0] = {}",
+            m.deficit[0]
+        );
+        assert!(
+            m.inflation > 2.0,
+            "adjacent differences of several units must inflate the unit errors: {}",
+            m.inflation
+        );
         assert_eq!(m.segments, 1);
     }
 
@@ -449,7 +578,10 @@ mod tests {
     fn transit_mask_and_cycles() {
         let t: Vec<f64> = (0..1000).map(|i| i as f64 * 0.01).collect();
         let m = transit_mask(&t, 2.0, 1.0, 0.2, 0.0);
-        let direct = t.iter().filter(|&&x| ((x - 1.0 + 1.0).rem_euclid(2.0) - 1.0).abs() <= 0.1).count();
+        let direct = t
+            .iter()
+            .filter(|&&x| ((x - 1.0 + 1.0).rem_euclid(2.0) - 1.0).abs() <= 0.1)
+            .count();
         assert_eq!(m.iter().filter(|&&x| x).count(), direct);
         assert!((100..=110).contains(&direct));
     }
