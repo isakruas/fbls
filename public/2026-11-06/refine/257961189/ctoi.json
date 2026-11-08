@@ -1,0 +1,51 @@
+{
+ "tic": 257961189,
+ "sectors": [
+  42,
+  43,
+  44
+ ],
+ "baseline_days": 76.75298349745572,
+ "candidates": [
+  {
+   "survey_period_days": 29.419251284058802,
+   "survey_snr": 8.700645315714475,
+   "outcome": "recovered",
+   "tier": "candidate: likely planet",
+   "signal": 0,
+   "snr": 8.440855108052116,
+   "period_days": 29.419251284058802,
+   "transits": 2,
+   "ctoi": {
+    "TIC ID": 257961189,
+    "Transit Epoch (BJD)": 2459467.633859454,
+    "Transit Epoch (BJD) err": 0.004538203331979493,
+    "Period (days)": 29.419251284058802,
+    "Period (days) Error": 0.019153158388059116,
+    "Depth ppm": 1299.4519943108403,
+    "Depth ppm Error": 186.0370071295327,
+    "Duration (hrs)": 0.9193516026268376,
+    "Duration (hrs) Error": 0.2565547926653652,
+    "Impact Param": null,
+    "Impact Param Error": null,
+    "Rad_p/Rad_s": 0.036047912482012605,
+    "Rad_p/Rad_s Error": 0.0025804130436452113,
+    "a/Rad_s": 45.91069046114579,
+    "a/Rad_s Error": 4.591069046114579,
+    "Inclination (deg)": null,
+    "Inclination (deg) Error": null,
+    "Planet Radius (R_Earth)": 3.419341712469999,
+    "Planet Radius (R_Earth) Error": 0.24476629430179758,
+    "Insolation (Earth Flux)": 19.196268486229116,
+    "Insolation (Earth Flux) Error": 4.39537000881987,
+    "Equilibrium Temp (K)": 582.5912424773187,
+    "Equilibrium Temp (K) Error": 32.7964135526301,
+    "Fitted Stellar Density (g/cm^3)": null,
+    "Fitted Stellar Density (g/cm^3) Error": null,
+    "User Disposition": "PC",
+    "Notes": "FBLS blind search (periodic); detector SNR 8.7, 2 transits; tier candidate: likely planet; flags none; FPP 0.45583676477737894; NFPP 0.0007466941213946039; a/Rs from TIC density; Isak Paulo de Andrade Ruas"
+   }
+  }
+ ],
+ "processed_utc": "2026-11-06T08:40:14.411998+00:00"
+}
