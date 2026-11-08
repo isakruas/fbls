@@ -39,6 +39,9 @@ pub const PART_STRIDE: usize = 9;
 pub const RECORD_STRIDE: usize = 9;
 pub const EVENT_STRIDE: usize = 4;
 pub const RESCORE_BLOCK: usize = 256;
+/// Points per block and shared-memory window of the biweight detrend kernel.
+pub const BIWEIGHT_BLOCK: usize = 128;
+pub const BIWEIGHT_WINDOW: usize = 4096;
 
 const NEG_INF: f64 = f64::NEG_INFINITY;
 const KEY_MAX: u64 = u64::MAX;
@@ -321,6 +324,56 @@ fn phase_cell(t: f64, scale: f64, nb: u32, inv_nb: f64) -> usize {
         r = v.wrapping_sub(q.wrapping_mul(nb));
     }
     r as usize
+}
+
+/// Lower median (k-th smallest, k = (e - a - 1) / 2) of the window values in
+/// shared memory, or of their absolute deviation from `center`, by bisection
+/// on the value range followed by the smallest element at or above the bound.
+#[inline(always)]
+fn window_median(
+    win: *const f64,
+    a: usize,
+    e: usize,
+    k: usize,
+    center: f64,
+    absolute: bool,
+) -> f64 {
+    let value = |j: usize| {
+        let x = unsafe { *win.add(j) };
+        if absolute { (x - center).abs() } else { x }
+    };
+    let mut vlo = f64::INFINITY;
+    let mut vhi = f64::NEG_INFINITY;
+    for j in a..e {
+        let v = value(j);
+        vlo = vlo.min(v);
+        vhi = vhi.max(v);
+    }
+    let mut it = 0;
+    while it < 64 && vhi > vlo {
+        let mid = 0.5 * (vlo + vhi);
+        if mid <= vlo || mid >= vhi {
+            break;
+        }
+        let mut below = 0usize;
+        for j in a..e {
+            below += (value(j) < mid) as usize;
+        }
+        if below <= k {
+            vlo = mid;
+        } else {
+            vhi = mid;
+        }
+        it += 1;
+    }
+    let mut best = f64::INFINITY;
+    for j in a..e {
+        let v = value(j);
+        if v >= vlo && v < best {
+            best = v;
+        }
+    }
+    best
 }
 
 struct Lane {
@@ -985,6 +1038,74 @@ pub mod gpu {
                 *counts.get_unchecked_mut(r * 2) = CNT[0];
                 *counts.get_unchecked_mut(r * 2 + 1) = CNT[RESCORE_BLOCK];
             }
+        }
+    }
+
+    /// Tukey biweight location in a sliding window, one thread per point.
+    /// `blocks` holds (first point, point count, union start, union end) per
+    /// block; the union of the block's windows is staged in shared memory.
+    /// Medians are exact lower medians found by bisection on the value range
+    /// (the k-th smallest element, k = (W - 1) / 2).
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn biweight(
+        flux: &[f64],
+        lo: &[u32],
+        hi: &[u32],
+        blocks: &[u32],
+        c: f64,
+        iterations: u32,
+        mut out: DisjointSlice<f64>,
+    ) {
+        static mut WIN: SharedArray<f64, BIWEIGHT_WINDOW> = SharedArray::UNINIT;
+        let lane = thread::threadIdx_x() as usize;
+        let b = thread::blockIdx_x() as usize * 4;
+        let (first, count, ulo, uhi) = (
+            blocks[b] as usize,
+            blocks[b + 1] as usize,
+            blocks[b + 2] as usize,
+            blocks[b + 3] as usize,
+        );
+        let win = (&raw mut WIN) as *mut f64;
+        let mut q = lane;
+        while q < uhi - ulo {
+            unsafe {
+                *win.add(q) = flux[ulo + q];
+            }
+            q += BIWEIGHT_BLOCK;
+        }
+        thread::sync_threads();
+        if lane >= count {
+            return;
+        }
+        let p = first + lane;
+        let (a, e) = (lo[p] as usize - ulo, hi[p] as usize - ulo);
+        let w = e - a;
+        let k = (w - 1) / 2;
+        let at = |j: usize| unsafe { *win.add(j) };
+        let mut location = window_median(win, a, e, k, 0.0, false);
+        let mut n = 0;
+        while n < iterations {
+            let loc = location;
+            let scale = (c * window_median(win, a, e, k, loc, true)).max(1e-12);
+            let mut total = 0.0;
+            let mut acc = 0.0;
+            for j in a..e {
+                let v = at(j);
+                let u = (v - loc) / scale;
+                if u.abs() < 1.0 {
+                    let wt = (1.0 - u * u) * (1.0 - u * u);
+                    total += wt;
+                    acc += wt * v;
+                }
+            }
+            if total > 0.0 {
+                location = acc / total;
+            }
+            n += 1;
+        }
+        unsafe {
+            *out.get_unchecked_mut(p) = at(p - ulo) / location - 1.0;
         }
     }
 

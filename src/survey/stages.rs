@@ -94,7 +94,11 @@ fn observations(star: &Star) -> Observations {
 
 /// Detrended residuals per family on the original cadences (no binning):
 /// (shortest duration, longest duration, residual per observation, NaN where clipped).
-pub fn detrended(star: &Star, cfg: &SearchConfig) -> Result<Vec<(f64, f64, Vec<f64>)>, String> {
+pub fn detrended(
+    star: &Star,
+    cfg: &SearchConfig,
+    device: usize,
+) -> Result<Vec<(f64, f64, Vec<f64>)>, String> {
     let durations = cfg.durations_days();
     let prep = PrepConfig {
         bin_minutes: 0.0,
@@ -104,7 +108,8 @@ pub fn detrended(star: &Star, cfg: &SearchConfig) -> Result<Vec<(f64, f64, Vec<f
         clip_sigma: cfg.clip_sigma,
         edge_trim: cfg.edge_trim_windows,
     };
-    let families = prepare_families(&observations(star), &durations, &prep)?;
+    let gpu = crate::search::scan::Gpu::shared(device).map_err(|e| e.to_string())?;
+    let families = prepare_families(&gpu, &observations(star), &durations, &prep)?;
     let mut out = Vec::new();
     for (curve, indices) in families {
         let mut corrected = vec![f64::NAN; star.time_bjd.len()];
@@ -191,7 +196,7 @@ impl Survey {
             .cloned()
             .unwrap_or_default();
         if !peaks.is_empty() {
-            let residuals = detrended(star, cfg)?;
+            let residuals = detrended(star, cfg, self.device)?;
             let mut used: Vec<usize> = peaks
                 .iter()
                 .map(|p| family_index(&residuals, p["duration_hours"].as_f64().unwrap()))

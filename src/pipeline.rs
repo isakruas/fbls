@@ -31,7 +31,8 @@ pub fn search_transits(
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     let durations = cfg.durations_days();
-    let families = prepare_families(obs, &durations, &crate::prep_config(cfg))?;
+    let gpu = Gpu::shared(device)?;
+    let families = prepare_families(&gpu, obs, &durations, &crate::prep_config(cfg))?;
     search_families(families, cfg, device, start)
 }
 
@@ -87,7 +88,7 @@ fn search_families(
         return Err("at least six usable observations are required".into());
     }
     let baseline = time_all[time_all.len() - 1] - time_all[0];
-    let gpu = Gpu::new(device)?;
+    let gpu = Gpu::shared(device)?;
     let search_start = std::time::Instant::now();
 
     let mut peaks: Vec<Peak> = Vec::new();

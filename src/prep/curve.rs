@@ -3,6 +3,9 @@
 //! the diagonal noise model consumed by the GPU search.
 
 use crate::prep::stats::{argsort, lower_bound, mad_scale, median_lower, upper_bound};
+use crate::search::kernels::{BIWEIGHT_BLOCK, BIWEIGHT_WINDOW};
+use crate::search::scan::Gpu;
+use cuda_core::{DeviceBuffer, LaunchConfig};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
@@ -246,6 +249,85 @@ pub fn biweight_flatten(
     out
 }
 
+/// Biweight detrend on the GPU: window bounds per point from the sorted
+/// times on the host, one thread per point in the kernel. Segments longer
+/// than `gap` are independent; windows wider than the shared-memory stage
+/// fall back to the host implementation.
+pub fn biweight_flatten_gpu(
+    gpu: &Gpu,
+    time: &[f64],
+    relative_flux: &[f64],
+    window: f64,
+    gap: f64,
+    c: f64,
+    iterations: usize,
+) -> Result<Vec<f64>, Box<dyn std::error::Error>> {
+    let n = time.len();
+    let flux: Vec<f64> = relative_flux.iter().map(|x| 1.0 + x).collect();
+    let mut lo = vec![0u32; n];
+    let mut hi = vec![0u32; n];
+    let mut start = 0;
+    for i in 1..=n {
+        if i == n || time[i] - time[i - 1] > gap {
+            let seg = &time[start..i];
+            for j in start..i {
+                lo[j] = (start + lower_bound(seg, time[j] - window / 2.0)) as u32;
+                hi[j] = (start + upper_bound(seg, time[j] + window / 2.0)) as u32;
+            }
+            start = i;
+        }
+    }
+    let mut blocks: Vec<u32> = Vec::new();
+    let mut first = 0usize;
+    while first < n {
+        let mut count = 1usize;
+        while count < BIWEIGHT_BLOCK
+            && first + count < n
+            && (hi[first + count] as usize - lo[first] as usize) <= BIWEIGHT_WINDOW
+        {
+            count += 1;
+        }
+        let (ulo, uhi) = (lo[first], hi[first + count - 1]);
+        if uhi as usize - ulo as usize > BIWEIGHT_WINDOW {
+            return Ok(biweight_flatten(
+                time,
+                relative_flux,
+                window,
+                gap,
+                c,
+                iterations,
+            ));
+        }
+        blocks.extend([first as u32, count as u32, ulo, uhi]);
+        first += count;
+    }
+    let stream = &gpu.stream;
+    let d_flux = DeviceBuffer::from_host(stream, &flux)?;
+    let d_lo = DeviceBuffer::from_host(stream, &lo)?;
+    let d_hi = DeviceBuffer::from_host(stream, &hi)?;
+    let d_blocks = DeviceBuffer::from_host(stream, &blocks)?;
+    let mut d_out = DeviceBuffer::<f64>::zeroed(stream, n)?;
+    // SAFETY: one block per table entry; every buffer covers the kernel's accesses.
+    unsafe {
+        gpu.module.biweight(
+            stream,
+            LaunchConfig {
+                grid_dim: ((blocks.len() / 4) as u32, 1, 1),
+                block_dim: (BIWEIGHT_BLOCK as u32, 1, 1),
+                shared_mem_bytes: 0,
+            },
+            &d_flux,
+            &d_lo,
+            &d_hi,
+            &d_blocks,
+            c,
+            iterations as u32,
+            &mut d_out,
+        )?;
+    }
+    Ok(d_out.to_host_vec(stream)?)
+}
+
 /// Distance of every observation to the nearest edge of its gap-separated segment.
 pub fn segment_edges(time: &[f64], gap: f64) -> Vec<f64> {
     let n = time.len();
@@ -300,6 +382,7 @@ pub struct PrepConfig {
 /// `clip_sigma` robust scatter and observations within `edge_trim` windows of a
 /// segment edge are dropped.
 pub fn prepare_families(
+    gpu: &Gpu,
     obs: &Observations,
     durations: &[f64],
     cfg: &PrepConfig,
@@ -319,7 +402,8 @@ pub fn prepare_families(
     for (window, indices) in
         detrending_windows(durations, cfg.window_min, cfg.window_factor, cfg.window_max)
     {
-        let flat = biweight_flatten(&diag.time, &relative, window, 0.5, 5.0, 10);
+        let flat = biweight_flatten_gpu(gpu, &diag.time, &relative, window, 0.5, 5.0, 10)
+            .map_err(|e| e.to_string())?;
         let scale = mad_scale(&flat);
         let keep: Vec<usize> = (0..flat.len())
             .filter(|&i| {
@@ -387,28 +471,30 @@ pub fn correlated_noise_factors(
     let mut measured = Vec::new();
     let mut counts = Vec::new();
     for &d in durations {
-        let mut map: BTreeMap<i64, (f64, f64, usize)> = BTreeMap::new();
+        // Sorted times make equal cells contiguous: one pass accumulates each bin.
+        let mut z = Vec::new();
+        let (mut total, mut acc, mut cnt) = (0.0, 0.0, 0usize);
+        let mut current = i64::MIN;
+        let flush = |total: f64, acc: f64, cnt: usize, z: &mut Vec<f64>| {
+            if cnt > 0 && (cnt as f64) >= min_fill * d / cadence {
+                z.push((acc / total) * total.sqrt());
+            }
+        };
         for i in 0..n {
             let cell = ((time[i] - time[0]) / d).floor() as i64;
-            let e = map.entry(cell).or_insert((0.0, 0.0, 0));
-            e.0 += weights[i];
-            e.1 += weights[i] * residual[i];
-            e.2 += 1;
+            if cell != current {
+                flush(total, acc, cnt, &mut z);
+                current = cell;
+                total = 0.0;
+                acc = 0.0;
+                cnt = 0;
+            }
+            total += weights[i];
+            acc += weights[i] * residual[i];
+            cnt += 1;
         }
-        let z: Vec<f64> = map
-            .values()
-            .filter(|(_, _, cnt)| (*cnt as f64) >= min_fill * d / cadence)
-            .map(|(total, acc, _)| (acc / total) * total.sqrt())
-            .collect();
+        flush(total, acc, cnt, &mut z);
         counts.push(z.len());
-        if std::env::var_os("FBLS_DEBUG").is_some() {
-            eprintln!(
-                "rho debug: duration={d} cadence={cadence} bins={} usable={} fill_threshold={}",
-                map.len(),
-                z.len(),
-                min_fill * d / cadence
-            );
-        }
         measured.push(if z.len() >= 3 {
             mad_scale(&z).max(1.0)
         } else {

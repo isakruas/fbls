@@ -18,11 +18,14 @@ concatenated; each (file, sector) pair is a normalization group.
 
 ## Pipeline
 
-1. **Preparation** (host, f64). Per-group median normalization, 10-minute
-   inverse-variance binning within groups, error inflation by the robust
-   scatter of standardized adjacent differences, one biweight-detrended curve
-   per duration family (window = clamp(3 D, 0.4, 3.5) days), positive clipping
-   at 4 sigma, edge trimming of half a window. Each family then gets a
+1. **Preparation**. Per-group median normalization, 10-minute
+   inverse-variance binning within groups and error inflation by the robust
+   scatter of standardized adjacent differences on the host (linear passes
+   over the sorted curve); one biweight-detrended curve per duration family
+   (window = clamp(3 D, 0.4, 3.5) days) on the GPU, one thread per
+   observation with the block's window union staged in shared memory and
+   exact lower medians by bisection; positive clipping at 4 sigma, edge
+   trimming of half a window. Each family then gets a
    diagonal noise model and a correlated-noise factor per duration.
 2. **Signal scan** (GPU). For each family and each octave band of its period
    grid: fold the four precision fields into `nb` phase bins per period,
@@ -160,6 +163,7 @@ information is used only after the search.
 
 | Kernel        | Grid                    | Block | Memory                     |
 |---------------|-------------------------|-------|----------------------------|
+| biweight      | (window blocks)         | 128   | detrend: one thread per observation, window union in shared memory |
 | fold          | (ceil(n/256), periods/4)| 256   | global f64 atomics, four periods per block (nb > 2048) |
 | fold_shared   | (periods)               | 256   | shared-memory histogram (nb <= 2048) |
 | cumulative    | (periods)               | 256   | warp-shuffle scans, f64 and (hi, lo) f32 outputs |

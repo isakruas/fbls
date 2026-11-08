@@ -44,7 +44,25 @@ pub struct Gpu {
     pub evidence: super::evidence::evidence_gpu::LoadedModule,
 }
 
+thread_local! {
+    static SHARED_GPU: std::cell::RefCell<Vec<(usize, std::rc::Rc<Gpu>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 impl Gpu {
+    /// The thread's handle for `device`, created on first use: the context,
+    /// stream and loaded modules are reused across stars processed by the
+    /// same worker thread.
+    pub fn shared(device: usize) -> Result<std::rc::Rc<Gpu>, Box<dyn std::error::Error>> {
+        SHARED_GPU.with(|cell| {
+            if let Some((_, g)) = cell.borrow().iter().find(|(d, _)| *d == device) {
+                return Ok(g.clone());
+            }
+            let g = std::rc::Rc::new(Gpu::new(device)?);
+            cell.borrow_mut().push((device, g.clone()));
+            Ok(g)
+        })
+    }
+
     pub fn new(device: usize) -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = CudaContext::new(device)?;
         let stream = ctx.default_stream();
