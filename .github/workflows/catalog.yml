@@ -1,4 +1,4 @@
-# A push to main publishes the newest day of public/ as a catalog release, unless that day is
+# A push to main that changes public/ publishes its newest day as a catalog release, unless that day is
 # already released (a manual run republishes it): `fbls catalog deposit` assembles the deposit
 # from public/, its files become the whole content of the orphan branch `catalog` (so the
 # release's source archive holds the catalog and nothing else), tagged v<day>, with the files as
@@ -8,6 +8,7 @@ name: Catalog release
 on:
   push:
     branches: [main]
+    paths: ['public/**']
   workflow_dispatch:
 jobs:
   release:
