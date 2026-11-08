@@ -80,3 +80,5 @@
  229742722 TOI  1859.01 P=  63.4839 found=63.4851    alias=1.00  snr=199.9   depth=   4939/5357    dur= 5.43/5.46 h RECOVERED 345.9s
  157698565 TOI  2589.01 P=  61.6277 found=82.1698    alias=-     snr=111.8   depth=   8494/8878    dur= 6.04/6.40 h MISSED 96.8s
  399967279 TOI  2537.01 P=  94.0998 found=57.9070    alias=-     snr=79.5    depth=  20093/20525   dur= 4.75/4.87 h MISSED 86.3s
+ 209464063 TOI  5678.01 P= 119.3355 found=47.7294    alias=-     snr=29.1    depth=   1786/2400    dur= 7.83/6.86 h MISSED 247.4s
+ 273234825 TOI  7395.01 P= 125.8659 found=136.3548   alias=-     snr=9.8     depth=   7986/11478   dur= 7.99/9.15 h MISSED 116.1s
