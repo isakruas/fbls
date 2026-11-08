@@ -16,8 +16,25 @@ struct Recovery {
     found_depth_ppm: Option<f64>,
     found_duration_h: Option<f64>,
     alias: Option<f64>,
+    /// Fraction of the catalog in-transit observations covered by the candidate ephemeris.
+    event_overlap: Option<f64>,
     recovered: bool,
     seconds: f64,
+}
+
+/// Fraction of the observations in transit for ephemeris `a` that are also in transit for `b`.
+fn event_overlap(time: &[f64], a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
+    let inside = |t: f64, (p, t0, d): (f64, f64, f64)| {
+        ((t - t0 + p / 2.0).rem_euclid(p) - p / 2.0).abs() <= d / 2.0
+    };
+    let total = time.iter().filter(|&&t| inside(t, a)).count();
+    if total == 0 {
+        return 0.0;
+    }
+    time.iter()
+        .filter(|&&t| inside(t, a) && inside(t, b))
+        .count() as f64
+        / total as f64
 }
 
 /// Smallest relative distance of `period` to m x catalog period for m in {1/3, 1/2, 1, 2, 3}.
@@ -99,9 +116,48 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     .partial_cmp(&b.0["snr"].as_f64())
                     .unwrap()
             });
-        let (found, alias) = match best {
-            Some((c, (_, m))) => (Some(c.clone()), Some(m)),
-            None => (candidates.first().cloned(), None),
+        let mut time: Vec<f64> = Vec::new();
+        for p in &paths {
+            if let Some(t) = crate::io::npz::read_npz(p)
+                .ok()
+                .and_then(|arrays| arrays.get("time_bjd").cloned())
+            {
+                time.extend(t.data.iter().cloned().filter(|x| x.is_finite()));
+            }
+        }
+        let catalog = (
+            catalog_period,
+            star["epoch_bjd"].as_f64().unwrap_or(f64::NAN),
+            catalog_duration / 24.0,
+        );
+        // Without a period alias, a candidate that covers the catalog transits is the same
+        // detection with a different cycle count, which sparse sectors cannot resolve.
+        let by_events = if best.is_none() && catalog.1.is_finite() {
+            candidates
+                .iter()
+                .map(|c| {
+                    (
+                        c,
+                        event_overlap(
+                            &time,
+                            catalog,
+                            (
+                                c["period_days"].as_f64().unwrap(),
+                                c["epoch_bjd"].as_f64().unwrap(),
+                                c["duration_hours"].as_f64().unwrap() / 24.0,
+                            ),
+                        ),
+                    )
+                })
+                .filter(|(_, f)| *f >= 0.5)
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        } else {
+            None
+        };
+        let (found, alias, overlap) = match (best, by_events) {
+            (Some((c, (_, m))), _) => (Some(c.clone()), Some(m), None),
+            (None, Some((c, f))) => (Some(c.clone()), None, Some(f)),
+            (None, None) => (candidates.first().cloned(), None, None),
         };
         let depth_ok = |d: f64| {
             !catalog_depth.is_finite() || (d / catalog_depth > 0.5 && d / catalog_depth < 2.0)
@@ -109,7 +165,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let duration_ok = |h: f64| {
             !(catalog_duration > 0.0) || (h / catalog_duration > 0.5 && h / catalog_duration < 2.0)
         };
-        let recovered = alias.is_some()
+        let recovered = (alias.is_some() || overlap.is_some())
             && found.as_ref().is_some_and(|c| {
                 depth_ok(c["depth_ppm"].as_f64().unwrap_or(0.0))
                     && duration_ok(c["duration_hours"].as_f64().unwrap_or(0.0))
@@ -125,6 +181,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             found_depth_ppm: found.as_ref().and_then(|c| c["depth_ppm"].as_f64()),
             found_duration_h: found.as_ref().and_then(|c| c["duration_hours"].as_f64()),
             alias,
+            event_overlap: overlap,
             recovered,
             seconds,
         };
@@ -136,7 +193,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             row.found_period
                 .map(|p| format!("{p:.4}"))
                 .unwrap_or("-".into()),
-            row.alias.map(|m| format!("{m:.2}")).unwrap_or("-".into()),
+            row.alias
+                .map(|m| format!("{m:.2}"))
+                .or(row.event_overlap.map(|f| format!("ev{:.0}%", 100.0 * f)))
+                .unwrap_or("-".into()),
             row.found_snr
                 .map(|s| format!("{s:.1}"))
                 .unwrap_or("-".into()),

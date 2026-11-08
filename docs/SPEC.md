@@ -182,8 +182,10 @@ reference/stars.json                 selected stars: TIC, TOI, ExoFOP period, ep
 
 `fbls validate --stars reference/stars.json` searches every reference star and
 checks that the catalog ephemeris is recovered: a candidate within 1e-3
-relative of the ExoFOP period or of its 1/2, 2x or 3x alias, with depth and
-duration within a factor of two. Reference stars are confirmed or known
+relative of the ExoFOP period or of its 1/3, 1/2, 2x or 3x alias, or, failing
+that, a candidate whose transits cover at least half of the catalog in-transit
+observations (the same events with a different cycle count, which sparse
+sectors cannot resolve), with depth and duration within a factor of two. Reference stars are confirmed or known
 planets from the ExoFOP TOI catalog. `tools/benchmark.py` compares recovery
 and run time with astropy BoxLeastSquares, transitleastsquares and cuvarbase on
 the same inputs.
