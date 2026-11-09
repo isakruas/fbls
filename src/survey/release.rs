@@ -272,7 +272,11 @@ pub fn zenodo(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .ok_or("--deposit DIR is required")?,
     );
     let token = std::env::var("ZENODO_TOKEN").map_err(|_| "ZENODO_TOKEN is not set")?;
-    let concept = std::env::var("ZENODO_RECORD").unwrap_or(CONCEPT_RECORD.to_string());
+    // The workflow passes an empty ZENODO_RECORD when the repo variable is unset.
+    let concept = std::env::var("ZENODO_RECORD")
+        .ok()
+        .filter(|c| !c.trim().is_empty())
+        .unwrap_or(CONCEPT_RECORD.to_string());
     let metadata: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(folder.join(".zenodo.json"))?)?;
     let version = metadata["version"].as_str().unwrap_or("").to_string();
@@ -282,10 +286,14 @@ pub fn zenodo(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         &token,
         None,
     )?;
-    let hits = published["hits"]["hits"]
+    // Keep only versions of this concept, so a loose search never targets another record.
+    let hits: Vec<serde_json::Value> = published["hits"]["hits"]
         .as_array()
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r["conceptrecid"].as_str() == Some(concept.as_str()))
+        .collect();
     if let Some(same) = hits
         .iter()
         .find(|r| r["metadata"]["version"].as_str() == Some(version.as_str()))
